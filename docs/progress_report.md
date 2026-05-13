@@ -57,13 +57,28 @@ The core research question:
 - Recall of 0.438 indicates that **~56% of person instances are missed**. This is mainly tiny persons in cluttered backgrounds — a known difficulty of VisDrone and a clear target for the synthetic-data experiments in Phase 3.
 - Inference latency of 2.0 ms easily meets real-time UAV requirements (≥20 FPS).
 
-### Week 3 — Size Comparison (in progress)
+### Week 3 — Size Comparison ✅ Done
 
-Training YOLOv12-s (~9M parameters) on the same filtered dataset to determine whether a larger model justifies the speed/memory trade-off for UAV deployment. Decision rule:
-- If `mAP@0.5(s) – mAP@0.5(n) > 0.05`: use YOLOv12-s for subsequent experiments.
-- Otherwise: keep YOLOv12-n for its better real-time profile.
+Trained YOLOv12-s (~9.3M parameters, ~19 MB) on the same filtered dataset with identical recipe, in overnight commit-and-run mode (~3–4h on T4).
 
-Results expected in 2-3 days.
+**Comparison:**
+
+| Metric | YOLOv12-n | **YOLOv12-s** | Δ (s − n) |
+|---|---|---|---|
+| mAP@0.5 | 0.476 | **0.552** | **+0.076** |
+| mAP@0.5:0.95 | 0.187 | 0.231 | +0.044 |
+| Precision | 0.621 | 0.690 | +0.069 |
+| Recall | 0.438 | 0.497 | +0.059 |
+
+**Decision: YOLOv12-s is selected for the downstream synthetic-data experiments.**
+
+Rationale:
+- ΔmAP@0.5 = +0.076 exceeds the predefined 0.05 decision threshold.
+- Recall improvement (+0.059) is particularly valuable for SAR, where missing a person is more costly than a false positive. YOLOv12-s misses roughly half of person instances; -n misses ~56%.
+- Inference latency remains real-time-compatible (~5-8 ms estimated on T4; benchmarking in Week 4).
+- Larger model is still deployable on Jetson Orin-class edge devices.
+
+Full analysis: [`results/comparison_n_vs_s.md`](../results/comparison_n_vs_s.md).
 
 ---
 
@@ -123,7 +138,7 @@ Implement **one** of the following improvements (chosen based on Phase 3 results
 
 ## 6. Summary
 
-Phase 1 (Weeks 1-3) is on track. Baseline established: **mAP@0.5 = 0.476, recall = 0.438**, with ~500 FPS inference on a T4 GPU. Recall is the clear weakness and provides a concrete target for the synthetic-data experiments. Week 3 (YOLOv12-s comparison) is currently running.
+Phase 1 (Weeks 1-3) is **complete**. After comparing two model sizes, **YOLOv12-s** was selected for downstream experiments with baseline **mAP@0.5 = 0.552, recall = 0.497** on VisDrone person-filtered. Recall remains the main target for improvement, motivating the synthetic-data experiments planned for Phase 3.
 
 Next major milestone: completing AirSim setup and the synthetic data pipeline by Week 6, with the first mixed-training experiment in Week 8.
 

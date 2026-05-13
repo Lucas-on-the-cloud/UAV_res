@@ -24,25 +24,28 @@ A research project on **real-time UAV-based person detection for Search and Resc
 
 | Phase | Weeks | Status |
 |---|---|---|
-| 1. Setup & Baseline | 1-3 | 🟢 In progress (Week 3 running) |
+| 1. Setup & Baseline | 1-3 | ✅ Done |
 | 2. Error Analysis & Simulator | 4-6 | ⚪ Upcoming |
 | 3. Synthetic Data Experiments | 7-10 | ⚪ Upcoming |
 | 4. Methodology Extension | 11-12 | ⚪ Upcoming |
 | 5. Cross-Dataset Evaluation | 13 | ⚪ Upcoming |
 | 6. Demo & Writing | 14-16 | ⚪ Upcoming |
 
-## Key Results (Week 2)
+## Key Results (Weeks 2-3)
 
-YOLOv12-n baseline on VisDrone person-filtered dataset:
+Baseline on VisDrone person-filtered (5,684 train / 531 val, 80 epochs, T4):
 
-| Metric | Value |
-|---|---|
-| mAP@0.5 | 0.476 |
-| mAP@0.5:0.95 | 0.187 |
-| Precision | 0.621 |
-| Recall | 0.438 |
-| Inference latency | 2.0 ms / image (~500 FPS on T4) |
-| Model size | 5.4 MB (2.5M params) |
+| Metric | YOLOv12-n | **YOLOv12-s** *(selected)* |
+|---|---|---|
+| mAP@0.5 | 0.476 | **0.552** |
+| mAP@0.5:0.95 | 0.187 | 0.231 |
+| Precision | 0.621 | 0.690 |
+| Recall | 0.438 | 0.497 |
+| Params (M) | 2.5 | 9.3 |
+| Best.pt size (MB) | 5.4 | ~19 |
+
+**YOLOv12-s selected for downstream experiments** (ΔmAP@0.5 = +0.076 ≥ 0.05 threshold).
+See [results/comparison_n_vs_s.md](results/comparison_n_vs_s.md) for full analysis.
 
 ## Repository Structure
 
