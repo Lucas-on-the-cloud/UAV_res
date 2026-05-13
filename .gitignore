@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.ipynb_checkpoints/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Model weights and datasets — too large for GitHub
+*.pt
+*.pth
+*.onnx
+*.engine
+*.weights
+
+# Data
+data/
+datasets/
+visdrone_person/
+*.zip
+*.tar.gz
+
+# Training output
+runs/
+wandb/
+*.cache
+
+# Local secrets
+.env
+kaggle.json
+*.key

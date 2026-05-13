@@ -1,0 +1,15 @@
+# Dataset config for YOLOv12 training on VisDrone person-filtered.
+#
+# When running on Kaggle, `path` should be /kaggle/working/visdrone_person
+# (created by src/filter_visdrone.py).
+#
+# Class 0 = person, obtained by merging VisDrone class 0 (pedestrian)
+# and class 1 (people) during filtering.
+
+path: /kaggle/working/visdrone_person
+train: train/images
+val: val/images
+
+nc: 1
+names:
+  0: person
