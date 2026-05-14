@@ -70,6 +70,24 @@ Major improvements: mAP@0.5:0.95 jumps +66% relative, and AP_small (the tiny-per
 
 **Key insight:** Naive SAHI inference on a model trained at low resolution fails due to training-inference distribution shift. Generating native-resolution crops during training aligns the two distributions and unlocks the benefit. Density-aware inference only works when paired with density-aware training.
 
+## Qualitative Results
+
+![Plan A predictions on HERIDAL val (10 samples)](results/visualizations/grid_montage.png)
+
+*Red dashed = ground truth, lime solid = Plan A predictions. Plan A finds the annotated persons reliably; remaining false positives are concentrated on natural distractors (see below).*
+
+Per-image visualizations: [`results/visualizations/`](results/visualizations/).
+
+### Observed failure modes
+
+Qualitative inspection of the predictions reveals that Plan A still produces false positives on natural objects that share person-like silhouettes at aerial distance:
+
+- **Rocks** — vertical formations of person-sized scale
+- **Small structures / huts / ruins** — similar aspect ratio to persons
+- **Dense vegetation** — occasionally mistaken for lying or crouched persons
+
+This is a useful signal for **Phase 3 (AirSim synthetic data)**: the synthetic dataset should include *hard-negative* scenarios (rocks-only, structures-only, dense vegetation without persons) in addition to person-containing scenarios. Roughly 30–40% of the synthetic data will be dedicated to these distractors to teach the model explicit suppression behavior.
+
 ## Repository Structure
 
 ```
