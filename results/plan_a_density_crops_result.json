@@ -1,0 +1,38 @@
+{
+  "experiment": "Plan A — Density-aware training crops + SAHI inference",
+  "motivation": "Advisor feedback: clustering and cropping images based on density to improve tiny aerial person detection.",
+  "method": {
+    "training": "YOLOv12-s trained on 640x640 crops generated from original 4000x3000 HERIDAL images (person-centered + random crops, ~4500 total)",
+    "inference": "SAHI sliced inference on original 4000x3000 val images, 640x640 tiles, 0.2 overlap, NMS post-process"
+  },
+  "training_config": {
+    "model": "yolov12s",
+    "epochs": 80,
+    "imgsz": 640,
+    "batch": 16,
+    "optimizer": "AdamW",
+    "lr0": 0.001,
+    "crop_size": 640,
+    "crops_per_image": "2 person-centered + 1 random"
+  },
+  "evaluation": "pycocotools COCO eval on original 4000x3000 val (313 images)",
+  "results": {
+    "mAP50":       0.8721,
+    "mAP50_95":    0.5735,
+    "mAP75":       0.6611,
+    "AP_small":    0.494,
+    "AR_100":      0.6616
+  },
+  "comparison": {
+    "baseline_heridal_resized_train":   {"mAP50": 0.7586, "mAP50_95": 0.3444},
+    "naive_sahi_no_crop_training":      {"mAP50": 0.2549, "mAP50_95": 0.1285, "note": "fails due to training-inference resolution mismatch"},
+    "plan_a_crops_train_sahi_inference": {"mAP50": 0.8721, "mAP50_95": 0.5735}
+  },
+  "deltas_vs_baseline": {
+    "mAP50":      "+0.1135 (+15.0% relative)",
+    "mAP50_95":   "+0.2291 (+66.5% relative)",
+    "AP_small":   "~250x improvement"
+  },
+  "key_insight": "Naively applying SAHI inference to a model trained on resized images fails badly because of distribution shift. Training on native-resolution crops aligns the training and inference distributions, unlocking the full benefit of density-aware slicing.",
+  "files": "yolov12s_heridal_crops_BEST.pt (backed up locally + Google Drive)"
+}

@@ -26,8 +26,8 @@ A research project on **real-time UAV-based person detection for Search and Resc
 |---|---|---|
 | 1. Setup & VisDrone baseline | 1-3 | ✅ Done |
 | 2. HERIDAL baseline | 4 | ✅ Done |
-| 2.5. Density-based cropping (SAHI) | 5 | 🟢 Next |
-| 3. AirSim synthetic data | 6-9 | ⚪ Upcoming |
+| 2.5. Density-aware crops + SAHI (Plan A) | 5 | ✅ Done |
+| 3. AirSim synthetic data | 6-9 | 🟢 Next |
 | 4. Methodology extension | 10-11 | ⚪ Upcoming |
 | 5. Cross-domain eval | 12 | ⚪ Upcoming |
 | 6. Demo & writing | 13-16 | ⚪ Upcoming |
@@ -44,7 +44,7 @@ A research project on **real-time UAV-based person detection for Search and Resc
 
 YOLOv12-s selected (ΔmAP@0.5 = +0.076). See [comparison_n_vs_s.md](results/comparison_n_vs_s.md).
 
-### Phase 2 — HERIDAL baseline (wilderness SAR, 1,124 train images, 100 epochs) ⭐
+### Phase 2 — HERIDAL baseline (wilderness SAR, 1,124 train images, 100 epochs)
 
 | Metric | VisDrone (urban) | **HERIDAL (wilderness)** | Δ |
 |---|---|---|---|
@@ -53,9 +53,22 @@ YOLOv12-s selected (ΔmAP@0.5 = +0.076). See [comparison_n_vs_s.md](results/comp
 | Precision | 0.690 | 0.749 | +0.059 |
 | **Recall** | 0.497 | **0.713** | **+0.216** |
 
-HERIDAL substantially outperforms VisDrone despite having 5× fewer training images, confirming domain alignment matters more than dataset size for the SAR application. Detailed analysis: [comparison_visdrone_vs_heridal.md](results/comparison_visdrone_vs_heridal.md).
+HERIDAL substantially outperforms VisDrone despite having 5× fewer training images. Details: [comparison_visdrone_vs_heridal.md](results/comparison_visdrone_vs_heridal.md).
 
-**HERIDAL is now the working baseline** for all downstream experiments. VisDrone becomes a cross-domain reference.
+### Phase 2.5 — Density-aware training crops + SAHI inference (Plan A) ⭐⭐
+
+Implementing the advisor's density-based cropping suggestion as **training-time augmentation** (not inference-time only), evaluated on the original 4000×3000 HERIDAL validation images:
+
+| Metric | HERIDAL baseline | Naive SAHI ❌ | **Plan A (crops + SAHI)** | Δ vs baseline |
+|---|---|---|---|---|
+| mAP@0.5 | 0.759 | 0.255 | **0.872** | **+0.113** |
+| mAP@0.5:0.95 | 0.344 | 0.129 | **0.574** | **+0.230** |
+| mAP@0.75 | — | 0.117 | **0.661** | (large) |
+| AP_small | — | 0.002 | **0.494** | (~250× over naive SAHI) |
+
+Major improvements: mAP@0.5:0.95 jumps +66% relative, and AP_small (the tiny-person metric) goes from essentially zero to 0.494. Full analysis in [plan_a_analysis.md](results/plan_a_analysis.md).
+
+**Key insight:** Naive SAHI inference on a model trained at low resolution fails due to training-inference distribution shift. Generating native-resolution crops during training aligns the two distributions and unlocks the benefit. Density-aware inference only works when paired with density-aware training.
 
 ## Repository Structure
 

@@ -172,9 +172,45 @@ Since HERIDAL has a single class (`person`), the 80:20 class imbalance does not 
 - Phase 2.5 (next week): implement **SAHI** (Slicing Aided Hyper Inference) on the HERIDAL baseline first. This is an inference-time density-aware crop and requires no retraining, so it's a fast way to test the principle. If it helps, move to training-time density-aware augmentation.
 - Phase 3 (weeks 6-9): use AirSim to generate ~1,500 synthetic SAR images focused on hard scenarios (occlusion, lying poses, low-light, dense forest). Mix with HERIDAL real data and measure mAP improvement.
 
-## 8. Summary
+## 8. Phase 2.5 — Density-aware training crops + SAHI (Plan A)
 
-Phases 1 and 2 are complete. The HERIDAL baseline (mAP@0.5 = 0.759, recall = 0.713) is strong and clearly outperforms the earlier VisDrone baseline. The next focus is improving `mAP@0.5:0.95` (still at 0.344), which corresponds to bounding-box localization precision for tiny persons — a known weakness of aerial detection. The advisor's density-cropping suggestion (Phase 2.5 via SAHI) directly targets this metric.
+Following the advisor's suggestion (clustering and cropping images based on density), I implemented **density-aware crops at training time**, then evaluated with SAHI sliced inference on the original 4000×3000 validation images.
+
+### Pipeline
+
+1. From each 4000×3000 HERIDAL training image, generate ~4 crops of 640×640 at native resolution:
+   - 2 crops centered on each ground-truth person (with random jitter)
+   - 1 random crop per image (for background variety)
+2. Re-train YOLOv12-s for 80 epochs on these ~4,500 crops (COCO pretrained init, AdamW, lr=0.001, AMP, T4 commit-and-run, ~3 hours).
+3. Run SAHI sliced inference on the original 4000×3000 val set (no resize), 640×640 tiles with 0.2 overlap.
+4. Evaluate with pycocotools COCO eval on the original-image coordinates.
+
+### Why we did it this way
+
+A first attempt applied SAHI inference directly to the baseline model (trained on resized 4000×3000 → 640 images). It failed catastrophically (mAP@0.5: 0.759 → 0.255) because of a training–inference distribution mismatch: the model had never been shown native-resolution patches and was hallucinating 354 detections on an image with one real person. Generating the crops at training time fixes this mismatch.
+
+### Results
+
+| Metric | Baseline | Naive SAHI ❌ | **Plan A** | Δ vs baseline |
+|---|---|---|---|---|
+| mAP@0.5 | 0.759 | 0.255 | **0.872** | **+0.113** |
+| mAP@0.5:0.95 | 0.344 | 0.129 | **0.574** | **+0.230** |
+| mAP@0.75 | — | 0.117 | **0.661** | (large) |
+| AP_small | — | 0.002 | **0.494** | (~250× over naive SAHI) |
+| AR_100 | — | 0.438 | **0.662** | +0.224 |
+
+Full analysis: [`results/plan_a_analysis.md`](../results/plan_a_analysis.md).
+
+### Implications
+
+- The advisor's density-crop suggestion is **strongly validated**: +66% relative on mAP@0.5:0.95, and AP_small (the tiny-person metric) is now usable (0.494) where it was effectively zero before.
+- The earlier mAP@0.5:0.95 weakness is largely resolved.
+- The training-time crop pipeline can be reused to mix in synthetic crops during Phase 3 (AirSim).
+- Naive SAHI inference is now a documented negative result and serves as a useful contrast in the eventual report.
+
+## 9. Summary
+
+Phases 1, 2, and 2.5 are complete. The current working baseline on HERIDAL is **Plan A: mAP@0.5 = 0.872, mAP@0.5:0.95 = 0.574, AP_small = 0.494**. The next focus is Phase 3 (AirSim synthetic data) — generating ~1,500 simulator-rendered SAR images for hard scenarios (occlusion, lying poses, dense vegetation, low-light), processed through the same crop pipeline and mixed into training.
 
 ---
 
