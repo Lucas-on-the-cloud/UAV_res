@@ -27,7 +27,7 @@ A research project on **real-time UAV-based person detection for Search and Resc
 | 1. Setup & VisDrone baseline | 1-3 | ✅ Done |
 | 2. HERIDAL baseline | 4 | ✅ Done |
 | 2.5. Density-aware crops + SAHI (Plan A) | 5 | ✅ Done |
-| 3. AirSim synthetic data | 6-9 | 🟢 Next |
+| 3. Diffusion-based synthetic data (pivot from AirSim) | 6-9 | 🟢 In progress |
 | 4. Methodology extension | 10-11 | ⚪ Upcoming |
 | 5. Cross-domain eval | 12 | ⚪ Upcoming |
 | 6. Demo & writing | 13-16 | ⚪ Upcoming |
