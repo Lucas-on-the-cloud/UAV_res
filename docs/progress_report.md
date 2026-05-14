@@ -136,11 +136,45 @@ Implement **one** of the following improvements (chosen based on Phase 3 results
 
 ---
 
-## 6. Summary
+## 6. HERIDAL Baseline (added 2026-05-14)
 
-Phase 1 (Weeks 1-3) is **complete**. After comparing two model sizes, **YOLOv12-s** was selected for downstream experiments with baseline **mAP@0.5 = 0.552, recall = 0.497** on VisDrone person-filtered. Recall remains the main target for improvement, motivating the synthetic-data experiments planned for Phase 3.
+After pivoting the primary dataset from VisDrone (urban aerial) to HERIDAL (wilderness SAR), I retrained YOLOv12-s on HERIDAL with the same recipe (100 epochs, imgsz=640, batch=12, AdamW lr=0.001, Tesla T4 commit-and-run).
 
-Next major milestone: completing AirSim setup and the synthetic data pipeline by Week 6, with the first mixed-training experiment in Week 8.
+### Results
+
+| Metric | VisDrone (urban) | **HERIDAL (wilderness)** | Δ |
+|---|---|---|---|
+| mAP@0.5 | 0.552 | **0.759** | **+0.207** |
+| mAP@0.5:0.95 | 0.231 | **0.344** | **+0.113** |
+| Precision | 0.690 | 0.749 | +0.059 |
+| **Recall** | 0.497 | **0.713** | **+0.216** |
+
+Despite HERIDAL having ~5× fewer training images, every metric improves substantially. Recall in particular jumps from 0.497 to 0.713, which is the most safety-critical metric for SAR (a missed person can mean a lost rescue).
+
+Full analysis: [`results/comparison_visdrone_vs_heridal.md`](../results/comparison_visdrone_vs_heridal.md).
+
+**HERIDAL is now the working baseline** for all downstream experiments. VisDrone becomes a cross-domain reference for Phase 5.
+
+## 7. Advisor Feedback (received 2026-05-13, applied to HERIDAL)
+
+The advisor reviewed the VisDrone baseline results (mAP@0.5 = 0.476 at that time) and proposed three improvement directions:
+
+1. **Density-based clustering & cropping** of training images (split each image into two parts based on object density). The motivation is that wide-area aerial images have most pixels as empty background; clustering and cropping around dense regions concentrates training signal on the targets.
+2. **Validate on HERIDAL** (now done — see Section 6).
+3. **Address class imbalance (pedestrian 79K vs people 27K instances, ~80:20)** by generating synthetic data via AirSim.
+
+### Adaptation for HERIDAL
+
+Since HERIDAL has a single class (`person`), the 80:20 class imbalance does not directly apply. The underlying idea is reinterpreted as **generating underrepresented scenarios** in AirSim — occluded persons, lying poses, dense vegetation, and low-light conditions — rather than balancing two classes.
+
+### Next steps based on feedback
+
+- Phase 2.5 (next week): implement **SAHI** (Slicing Aided Hyper Inference) on the HERIDAL baseline first. This is an inference-time density-aware crop and requires no retraining, so it's a fast way to test the principle. If it helps, move to training-time density-aware augmentation.
+- Phase 3 (weeks 6-9): use AirSim to generate ~1,500 synthetic SAR images focused on hard scenarios (occlusion, lying poses, low-light, dense forest). Mix with HERIDAL real data and measure mAP improvement.
+
+## 8. Summary
+
+Phases 1 and 2 are complete. The HERIDAL baseline (mAP@0.5 = 0.759, recall = 0.713) is strong and clearly outperforms the earlier VisDrone baseline. The next focus is improving `mAP@0.5:0.95` (still at 0.344), which corresponds to bounding-box localization precision for tiny persons — a known weakness of aerial detection. The advisor's density-cropping suggestion (Phase 2.5 via SAHI) directly targets this metric.
 
 ---
 

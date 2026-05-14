@@ -24,28 +24,38 @@ A research project on **real-time UAV-based person detection for Search and Resc
 
 | Phase | Weeks | Status |
 |---|---|---|
-| 1. Setup & Baseline | 1-3 | ✅ Done |
-| 2. Error Analysis & Simulator | 4-6 | ⚪ Upcoming |
-| 3. Synthetic Data Experiments | 7-10 | ⚪ Upcoming |
-| 4. Methodology Extension | 11-12 | ⚪ Upcoming |
-| 5. Cross-Dataset Evaluation | 13 | ⚪ Upcoming |
-| 6. Demo & Writing | 14-16 | ⚪ Upcoming |
+| 1. Setup & VisDrone baseline | 1-3 | ✅ Done |
+| 2. HERIDAL baseline | 4 | ✅ Done |
+| 2.5. Density-based cropping (SAHI) | 5 | 🟢 Next |
+| 3. AirSim synthetic data | 6-9 | ⚪ Upcoming |
+| 4. Methodology extension | 10-11 | ⚪ Upcoming |
+| 5. Cross-domain eval | 12 | ⚪ Upcoming |
+| 6. Demo & writing | 13-16 | ⚪ Upcoming |
 
-## Key Results (Weeks 2-3)
+## Key Results
 
-Baseline on VisDrone person-filtered (5,684 train / 531 val, 80 epochs, T4):
+### Phase 1 — VisDrone baseline (urban aerial, 5,684 train images, 80 epochs)
 
-| Metric | YOLOv12-n | **YOLOv12-s** *(selected)* |
+| Metric | YOLOv12-n | YOLOv12-s |
 |---|---|---|
-| mAP@0.5 | 0.476 | **0.552** |
+| mAP@0.5 | 0.476 | 0.552 |
 | mAP@0.5:0.95 | 0.187 | 0.231 |
-| Precision | 0.621 | 0.690 |
 | Recall | 0.438 | 0.497 |
-| Params (M) | 2.5 | 9.3 |
-| Best.pt size (MB) | 5.4 | ~19 |
 
-**YOLOv12-s selected for downstream experiments** (ΔmAP@0.5 = +0.076 ≥ 0.05 threshold).
-See [results/comparison_n_vs_s.md](results/comparison_n_vs_s.md) for full analysis.
+YOLOv12-s selected (ΔmAP@0.5 = +0.076). See [comparison_n_vs_s.md](results/comparison_n_vs_s.md).
+
+### Phase 2 — HERIDAL baseline (wilderness SAR, 1,124 train images, 100 epochs) ⭐
+
+| Metric | VisDrone (urban) | **HERIDAL (wilderness)** | Δ |
+|---|---|---|---|
+| mAP@0.5 | 0.552 | **0.759** | **+0.207** |
+| mAP@0.5:0.95 | 0.231 | **0.344** | **+0.113** |
+| Precision | 0.690 | 0.749 | +0.059 |
+| **Recall** | 0.497 | **0.713** | **+0.216** |
+
+HERIDAL substantially outperforms VisDrone despite having 5× fewer training images, confirming domain alignment matters more than dataset size for the SAR application. Detailed analysis: [comparison_visdrone_vs_heridal.md](results/comparison_visdrone_vs_heridal.md).
+
+**HERIDAL is now the working baseline** for all downstream experiments. VisDrone becomes a cross-domain reference.
 
 ## Repository Structure
 

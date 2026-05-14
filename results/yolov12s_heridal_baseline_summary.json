@@ -1,0 +1,21 @@
+{
+  "model": "yolov12s",
+  "dataset": "HERIDAL (wilderness SAR)",
+  "dataset_source": "Roboflow Universe (heridal-lrbkc-8vnfq, v1)",
+  "license": "CC BY 4.0",
+  "train_images": 1124,
+  "val_images": 313,
+  "test_images": 163,
+  "epochs": 100,
+  "imgsz": 640,
+  "batch": 12,
+  "optimizer": "AdamW",
+  "lr0": 0.001,
+  "hardware": "Tesla T4 (Kaggle free tier)",
+  "training_mode": "Save & Run All (Commit), overnight",
+  "mAP50": 0.7586,
+  "mAP50_95": 0.3444,
+  "precision": 0.749,
+  "recall": 0.7132,
+  "notes": "Significantly outperforms VisDrone baseline (mAP@0.5 +0.207, recall +0.216). Wilderness SAR domain proves more aligned with the project's research goal."
+}
