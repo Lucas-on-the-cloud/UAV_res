@@ -26,8 +26,8 @@ A research project on **real-time UAV-based person detection for Search and Resc
 |---|---|---|
 | 1. Setup & VisDrone baseline | 1-3 | ✅ Done |
 | 2. HERIDAL baseline | 4 | ✅ Done |
-| 2.5. Density-aware crops + SAHI (Plan A) | 5 | ✅ Done |
-| 3. Diffusion-based synthetic data (pivot from AirSim) | 6-9 | 🟢 In progress |
+| 2.5. Density-aware crops + SAHI (Plan A) | 5 | ✅ Done — **main contribution** |
+| 3. Diffusion-based synthetic data (pivot from AirSim) | 6-9 | ⚠️ Attempted, abandoned — see [phase3_lessons_learned.md](docs/phase3_lessons_learned.md) |
 | 4. Methodology extension | 10-11 | ⚪ Upcoming |
 | 5. Cross-domain eval | 12 | ⚪ Upcoming |
 | 6. Demo & writing | 13-16 | ⚪ Upcoming |
@@ -86,7 +86,23 @@ Qualitative inspection of the predictions reveals that Plan A still produces fal
 - **Small structures / huts / ruins** — similar aspect ratio to persons
 - **Dense vegetation** — occasionally mistaken for lying or crouched persons
 
-This is a useful signal for **Phase 3 (AirSim synthetic data)**: the synthetic dataset should include *hard-negative* scenarios (rocks-only, structures-only, dense vegetation without persons) in addition to person-containing scenarios. Roughly 30–40% of the synthetic data will be dedicated to these distractors to teach the model explicit suppression behavior.
+This was originally intended as motivation for Phase 3's synthetic data (hard-negative scenarios: rocks-only, structures-only, dense vegetation without persons). Phase 3 was attempted but the synthetic-augmentation runs failed — see the Phase 3 section below.
+
+### Phase 3 — Synthetic data augmentation (negative result)
+
+Two synthetic-augmentation strategies were attempted on a rented RTX 5090 VM:
+
+| Approach | mAP@0.5 | mAP@0.5:0.95 | AP_small |
+|---|---|---|---|
+| A. SDXL diffusion synthetic + raw HERIDAL | 0.013 | 0.007 | 0.043 |
+| B. HERIDAL-to-HERIDAL copy-paste + raw HERIDAL | 0.000 | 0.000 | 0.000 |
+| **Plan A baseline (unchanged)** | **0.872** | **0.574** | **0.494** |
+
+Both runs collapsed because mixing synthetic data with **raw 4000×3000 HERIDAL images** at `imgsz=640` reintroduces the same training–inference scale mismatch that Plan A originally solved: ~5 px persons in the training distribution vs. ~30 px persons in SAHI tiles at inference time. The synthetic samples themselves were fine; the pipeline that consumed them was wrong.
+
+Full diagnosis, sample synthetic backgrounds, and the "crop-then-synthesize" fix proposed as future work: [docs/phase3_lessons_learned.md](docs/phase3_lessons_learned.md). Sample SDXL backgrounds: [figures/synthetic_bg/](figures/synthetic_bg/).
+
+Plan A remains the working contribution; the Phase 3 attempts are documented as an honest negative result.
 
 ## Repository Structure
 
