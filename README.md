@@ -27,8 +27,7 @@ This project builds a **pipeline** — not a new detector — for aerial SAR per
 The deliverables of the project are:
 
 - A reproducible training pipeline (Phase 2.5 / **Plan A**) achieving **mAP@0.5 = 0.872, mAP@0.5:0.95 = 0.574, AP_small = 0.494** on the HERIDAL validation set ([raw metrics](results/plan_a_density_crops_result.json) · [analysis](results/plan_a_analysis.md)).
-- A documented **negative result** on synthetic data augmentation (Phase 3, [docs/phase3_lessons_learned.md](docs/phase3_lessons_learned.md)) identifying *training–inference scale mismatch* as the dominant failure mode and *crop-then-synthesize* as the fix for future work.
-- A planned Phase 4 ([§11](#11-phase-4--planned-work)) extending the pipeline with a hard-negative cascade classifier ([Cai & Vasconcelos 2018](https://arxiv.org/abs/1712.00726)) and SAM2 bbox refinement ([Ravi et al. 2024](https://arxiv.org/abs/2408.00714)).
+- **Three documented negative results**: synthetic-data augmentation (Phase 3, [docs/phase3_lessons_learned.md](docs/phase3_lessons_learned.md)), SAM2 bbox refinement ([results/phase4_sam2_result.json](results/phase4_sam2_result.json)), and a hard-negative cascade classifier ([results/phase4_cascade_result.json](results/phase4_cascade_result.json)). Each fails for a different specific reason; together they reveal that **scale-awareness, not the individual component, is the load-bearing constraint** in this regime ([§11](#11-phase-4--post-processing-on-plan-a-two-more-negative-results)).
 
 ### Methodology overview
 
@@ -40,9 +39,11 @@ The pipeline solves the three problems above by **aligning the data scale seen d
 
 The fix — **Plan A**, the main contribution — moves the density-aware step **into training**: generate person-centered 640×640 crops at native resolution from the original HERIDAL images, train YOLOv12-s on those crops, and then run SAHI sliced inference on the original 4000×3000 images. Training distribution and inference distribution now match. This unlocks the benefit of SAHI and pushes mAP@0.5 to **0.872** (+0.113 vs Phase 2). Details: [§8](#8-phase-25--plan-a-density-aware-crops--sahi-).
 
-**Layer 3 — Post-processing for residual failure modes (Phase 4, planned).** Plan A's remaining errors are concentrated on (a) natural distractors (rocks, huts, vegetation) producing false positives, and (b) bounding boxes that find the person but are not tight enough at strict IoU thresholds. Phase 4 layers two post-hoc modules on top of Plan A: a **hard-negative cascade classifier** to filter (a), and **SAM2-based bbox refinement** to fix (b). No retraining of YOLOv12-s required for either. Details: [§11](#11-phase-4--planned-work).
+**Layer 3 — Post-processing for residual failure modes (Phase 4, executed, both negative).** Plan A's remaining errors are concentrated on (a) natural distractors (rocks, huts, vegetation) producing false positives, and (b) bounding boxes that find the person but are not tight enough at strict IoU thresholds. Phase 4 layered two post-hoc modules on top of Plan A: **SAM2 bbox refinement** to target (b), and a **hard-negative cascade classifier** to target (a). **Both modules underperformed.** SAM2 over-tightens boxes by 2–3 px versus the HERIDAL GT convention, dropping mAP@0.75 from 0.661 to 0.492. The cascade filter, at 64×64 classifier input, drops small-scale TPs, taking AP_small from 0.494 to 0.379. Plan A baseline (0.872) remains unchanged. Details: [§11](#11-phase-4--post-processing-on-plan-a-two-more-negative-results).
 
 **Phase 3 — what was tried and why it failed.** Between Plan A and Phase 4, a synthetic-data augmentation phase was attempted (SDXL-generated backgrounds + HERIDAL person paste; same-domain HERIDAL composites). Both variants collapsed to ≈0 mAP. The diagnosis — *mixing raw 4000×3000 HERIDAL images into training reintroduces the same scale mismatch Plan A had just solved* — is documented in full as a negative result and frames "crop-then-synthesize" as the right way to revisit the idea later. Details: [§9](#9-phase-3--synthetic-data-augmentation-negative-result).
+
+**The convergent lesson.** Phase 3 (synthetic data), Phase 4 SAM2 (refinement), and Phase 4 cascade (post-hoc filter) all fail — each for a *different mechanical reason* (scale mismatch / box-tightness mismatch / small-scale SNR limit). The pattern across all three is that Plan A's scale alignment is what makes everything work, and **any add-on that breaks scale-awareness breaks something**.
 
 ### How to read the rest of this README
 
@@ -68,7 +69,7 @@ The fix — **Plan A**, the main contribution — moves the density-aware step *
 8. [Phase 2.5 — Plan A: Density-aware Crops + SAHI ⭐](#8-phase-25--plan-a-density-aware-crops--sahi-)
 9. [Phase 3 — Synthetic Data Augmentation (Negative Result)](#9-phase-3--synthetic-data-augmentation-negative-result)
 10. [Qualitative Results & Observed Failure Modes](#10-qualitative-results--observed-failure-modes)
-11. [Phase 4 — Planned Work](#11-phase-4--planned-work)
+11. [Phase 4 — Post-Processing on Plan A (Two More Negative Results)](#11-phase-4--post-processing-on-plan-a-two-more-negative-results)
 12. [Repository Structure](#12-repository-structure)
 13. [Tech Stack & Compute](#13-tech-stack--compute)
 14. [Citations](#14-citations)
@@ -154,19 +155,20 @@ Each phase adds **one** clearly-scoped change to the pipeline. The mAP@0.5 colum
 | **Phase 2** | Same YOLOv12-s, but trained on **HERIDAL** (target domain: wilderness) | Dataset | 0.759 | **+0.207** | +0.207 (vs VisDrone) |
 | **Phase 2.5 — Plan A** ⭐ | Same YOLOv12-s + **density-aware native-resolution crops** during training + **SAHI sliced inference** | Data preprocessing + inference | **0.872** | **+0.113** | **+0.320** (vs VisDrone) |
 | Phase 3 (failed) | Same YOLOv12-s + SDXL / HERIDAL composite synthetic data | Data augmentation | 0.013 / 0.000 | −0.859 / −0.872 | regression (documented as negative result) |
-| Phase 4 (planned) | Same YOLOv12-s + Plan A + **cascade FP filter** + **SAM2 bbox refinement** | Post-processing | ? | ? (target +0.02–0.05) | — |
+| Phase 4 Module 1 (negative) | Same YOLOv12-s + Plan A + **SAM2 bbox refinement** | Post-processing | 0.871 | −0.001 | mAP@0.5 neutral, but mAP@0.75 drops to 0.492 (−0.169) |
+| Phase 4 Module 2 (negative) | Same YOLOv12-s + Plan A + **cascade classifier filter** | Post-processing | 0.869 | −0.003 | mAP@0.5 neutral, but AP_small drops to 0.379 (−0.115) |
 
-**Reading this table:** every row uses the same YOLOv12-s. The improvement at each row attaches to the **outside-the-model** change introduced in that phase. Phase 2.5 (Plan A) is the only phase whose contribution stacks cleanly on top of the previous phase's contribution; Phase 3 was an attempted addition that did not stack and is reported as a negative result.
+**Reading this table:** every row uses the same YOLOv12-s. The improvement at each row attaches to the **outside-the-model** change introduced in that phase. Phase 2.5 (Plan A) is the only phase whose contribution stacks cleanly. Phase 3 and Phase 4 are three attempted additions that did not stack and are reported as negative results; collectively they reveal that scale-awareness, not the individual component, is the load-bearing constraint.
 
 ### 2.3 What changes at each pipeline stage
 
-| Pipeline stage | Phase 1 | Phase 2 | Phase 2.5 (Plan A) | Phase 3 (failed) | Phase 4 (planned) |
+| Pipeline stage | Phase 1 | Phase 2 | Phase 2.5 (Plan A) | Phase 3 (failed) | Phase 4 (negative) |
 |---|---|---|---|---|---|
 | Detector architecture | YOLOv12-s | YOLOv12-s | YOLOv12-s | YOLOv12-s | YOLOv12-s |
 | Training data source | VisDrone person | HERIDAL raw | HERIDAL raw | HERIDAL raw + synthetic | HERIDAL raw |
 | Training preprocessing | resize 640 | resize 640 | **density crops 640 (native)** ⭐ | mix raw + synthetic ❌ | density crops 640 |
 | Inference preprocessing | resize 640 | resize 640 | **SAHI 640 tiles (native)** ⭐ | SAHI 640 tiles | SAHI 640 tiles |
-| Post-processing | NMS | NMS | NMS | NMS | **cascade FP filter + SAM2 refinement** ⭐ |
+| Post-processing | NMS | NMS | NMS | NMS | **cascade filter (drops AP_small) + SAM2 refit (over-tightens)** ❌ |
 
 Only the cells in bold are modified relative to the base pipeline. This makes the contribution surface visible at a glance.
 
@@ -219,8 +221,10 @@ HERIDAL is the real SAR scenario. Wilderness search-and-rescue UAV missions look
 | **Phase 2.5 — Plan A ⭐ (crops + SAHI)** | **0.872** | **0.574** | **0.494** | [results/plan_a_analysis.md](results/plan_a_analysis.md) · [JSON](results/plan_a_density_crops_result.json) |
 | Phase 3 — SDXL synthetic + raw HERIDAL ❌ | 0.013 | 0.007 | 0.043 | [docs/phase3_lessons_learned.md](docs/phase3_lessons_learned.md) |
 | Phase 3 — HERIDAL composite + raw HERIDAL ❌ | 0.000 | 0.000 | 0.000 | [docs/phase3_lessons_learned.md](docs/phase3_lessons_learned.md) |
+| Phase 4 — Plan A + SAM2 refinement ❌ | 0.871 | 0.487 | 0.450 | [results/phase4_sam2_result.json](results/phase4_sam2_result.json) |
+| Phase 4 — Plan A + Cascade classifier ❌ | 0.869 | 0.571 | 0.379 | [results/phase4_cascade_result.json](results/phase4_cascade_result.json) |
 
-Δ Plan A vs Phase 2 baseline: **+0.113 mAP@0.5 (+15.0% relative)**, **+0.229 mAP@0.5:0.95 (+66.5% relative)**, AP_small from ~0 → 0.494 (≈250× over naive SAHI).
+Δ Plan A vs Phase 2 baseline: **+0.113 mAP@0.5 (+15.0% relative)**, **+0.229 mAP@0.5:0.95 (+66.5% relative)**, AP_small from ~0 → 0.494 (≈250× over naive SAHI). Plan A remains the headline contribution; Phase 3 and both Phase 4 modules are documented as honest negative results — see [§11](#11-phase-4--post-processing-on-plan-a-two-more-negative-results) for the convergent lesson on scale-awareness.
 
 ---
 
@@ -231,8 +235,8 @@ HERIDAL is the real SAR scenario. Wilderness search-and-rescue UAV missions look
 | 1. Setup & VisDrone baseline | 1–3 | ✅ Done |
 | 2. HERIDAL baseline | 4 | ✅ Done |
 | 2.5. Density-aware crops + SAHI (Plan A) | 5 | ✅ Done — **main contribution** |
-| 3. Diffusion-based synthetic data | 6–9 | ⚠️ Attempted, abandoned — see [docs/phase3_lessons_learned.md](docs/phase3_lessons_learned.md) |
-| 4. GAN-based synth + post-processing (cascade + SAM2) | 10–11 | ⚪ Planned |
+| 3. Diffusion-based synthetic data | 6–9 | ⚠️ Negative result — see [docs/phase3_lessons_learned.md](docs/phase3_lessons_learned.md) |
+| 4. Post-processing (SAM2 + cascade) | 10–11 | ⚠️ Negative result on both modules — see [results/phase4_sam2_result.json](results/phase4_sam2_result.json), [results/phase4_cascade_result.json](results/phase4_cascade_result.json) |
 | 5. Cross-domain eval (HERIDAL → SARD) | 12 | ⚪ Upcoming |
 | 6. Demo & paper writing | 13–16 | ⚪ Upcoming |
 
@@ -436,27 +440,71 @@ These are the targets for Phase 4 post-processing (cascade classifier + SAM2 ref
 
 ---
 
-## 11. Phase 4 — Planned Work
+## 11. Phase 4 — Post-Processing on Plan A (Two More Negative Results)
 
-Phase 4 is the next research direction, currently in proposal stage. Two complementary techniques targeting Plan A's two remaining issues:
+Phase 4 layered two post-processing modules on top of Plan A, each targeting a different residual failure mode. Neither retrained YOLOv12. **Both modules underperformed and are documented as honest negative results.** Full per-module write-ups: [results/phase4_sam2_result.json](results/phase4_sam2_result.json) · [results/phase4_cascade_result.json](results/phase4_cascade_result.json). Execution plan that was followed: [docs/phase4_plan_sam2_cascade.md](docs/phase4_plan_sam2_cascade.md).
 
-### Direction A — Hard-Negative Cascade Classifier (targets false positives)
+### Module 1 — SAM2 Bbox Refinement (negative result)
 
-Train a lightweight ResNet18 / MobileNetV3 classifier on cropped predictions to distinguish `person` from `rock / structure / vegetation`, applied as a second stage after SAHI to filter Plan A's false positives.
+**Method**
+1. Run Plan A SAHI inference on HERIDAL val to get baseline bounding boxes.
+2. For each bbox, prompt **SAM2** ([Ravi et al., Meta AI 2024, arXiv:2408.00714](https://arxiv.org/abs/2408.00714)) with the bbox as input.
+3. Take the returned segmentation mask, refit a tight bbox from the mask boundary (with 1-pixel outward padding).
+4. Filter: drop predictions whose mask area < 50 px or aspect ratio outside [0.2, 5.0].
+5. Re-evaluate with pycocotools.
 
-- **Paper applied:** **Cascade R-CNN — Delving into High Quality Object Detection** (Cai & Vasconcelos, CVPR 2018, [arXiv:1712.00726](https://arxiv.org/abs/1712.00726)) — cascade design pattern; we apply it as a post-hoc classifier cascade rather than IoU-cascade.
+**Result**
 
-### Direction B — SAM2 Bbox Refinement (targets mAP@0.75 and mAP@0.5:0.95)
+| Metric | Plan A baseline | **Plan A + SAM2** | Δ |
+|---|---|---|---|
+| mAP@0.5 | 0.872 | 0.871 | **−0.001** |
+| mAP@0.5:0.95 | 0.573 | 0.487 | **−0.086** |
+| mAP@0.75 | 0.661 | 0.492 | **−0.169** |
+| AP_small | 0.494 | 0.450 | −0.044 |
+| AR_100 | 0.661 | 0.589 | −0.072 |
 
-Use **SAM2** segmentation prompted by each Plan A bbox to refine the bbox tight around the segmented person mask, raising localization quality without affecting recall.
+**Diagnosis.** SAM2 segments the person tightly, but its refit bounding box is **2–3 pixels tighter than the HERIDAL ground-truth annotation convention**. At ~30-px person scale this is enough to drop IoU below the strict thresholds (0.75 and above). SAM2 is "correct" in the sense that it really does outline the person; the GT bbox convention simply has slight margin that SAM2 doesn't respect. Future work: scale-conditional padding, larger SAM2 variant, or use SAM2 only as a false-positive filter (drop) rather than as a refit operator (replace).
 
-- **Paper applied:** **SAM 2 — Segment Anything in Images and Videos** (Ravi et al., Meta AI 2024, [arXiv:2408.00714](https://arxiv.org/abs/2408.00714)) — used zero-shot with bbox prompts; no training required.
+### Module 2 — Hard-Negative Cascade Classifier (negative result on AP_small)
 
-### Direction C (future, conditional on Phase 4A/B success) — GAN-based synthetic with crop-then-synthesize
+**Method**
+1. Run Plan A SAHI inference on HERIDAL **train** images (not val) to harvest predictions.
+2. Match each prediction against ground truth by IoU: IoU ≥ 0.5 → `person`, IoU < 0.1 → `not_person`, else drop as ambiguous.
+3. Crop a 1.5× padded region around each kept prediction, resize to 64×64.
+4. Train **MobileNetV3-Small** (timm pretrained) for 30 epochs with class-balanced sampling (Howard et al., ICCV 2019, [arXiv:1905.02244](https://arxiv.org/abs/1905.02244)). Cascade design adapted from Cai & Vasconcelos, CVPR 2018 ([arXiv:1712.00726](https://arxiv.org/abs/1712.00726)) — post-hoc classifier cascade rather than IoU-cascade.
+5. At inference: drop any Plan A prediction whose person-probability < 0.5; multiply surviving prediction score by person-probability.
+6. Re-evaluate with pycocotools.
 
-Replace the Phase 3 SDXL pipeline with a **StyleGAN2-ADA** generator trained on HERIDAL background crops, then composite real persons + apply the density-aware crop pipeline (same as Plan A) **before** training. Closes the loop on Phase 3.
+**Result**
 
-- **Paper applied:** **Training Generative Adversarial Networks with Limited Data (StyleGAN2-ADA)** (Karras et al., NeurIPS 2020, [arXiv:2006.06676](https://arxiv.org/abs/2006.06676)) — designed for limited-data regimes such as HERIDAL's 1,124 training images.
+| Metric | Plan A baseline | **Plan A + Cascade** | Δ |
+|---|---|---|---|
+| mAP@0.5 | 0.872 | 0.869 | −0.003 |
+| mAP@0.5:0.95 | 0.573 | 0.571 | −0.002 |
+| mAP@0.75 | 0.661 | 0.663 | +0.002 |
+| AP_small | 0.494 | 0.379 | **−0.115** |
+| AR_100 | 0.661 | 0.636 | −0.025 |
+| Filter rate | — | 38.9% (drops 389/1000 preds) | — |
+
+**Diagnosis.** Overall mAP metrics are essentially neutral, but **AP_small drops 11.5 absolute points**. At 64×64 classifier input — combined with 1.5× bbox padding then downsampling — a ~30-px person has too little signal for confident person-vs-distractor discrimination. The 0.5 confidence threshold disproportionately drops small-scale **true positives**, not the rocks-and-huts false positives it was designed to remove. Future work: threshold sweep at 0.2–0.4, larger crop input (128×128), scale-conditional classifier, or use the classifier as a score re-weighter (multiply but never drop) rather than a hard filter.
+
+### Convergent Lesson (Phase 3 + Phase 4 combined)
+
+Three post-hoc additions on top of Plan A — synthetic augmentation (Phase 3), SAM2 refinement (Phase 4 Module 1), cascade classifier (Phase 4 Module 2) — all underperformed for **different specific mechanical reasons**:
+
+| Module | Why it failed |
+|---|---|
+| Phase 3 — SDXL + composite augmentation | Mixed synthetic with raw 4000×3000 HERIDAL train at imgsz=640, reintroducing the scale mismatch Plan A had just solved |
+| Phase 4 — SAM2 bbox refinement | SAM2 refit boxes are 2–3 px tighter than HERIDAL GT — IoU drops below strict thresholds at ~30-px person scale |
+| Phase 4 — Cascade classifier | 64×64 input too small for confident classification at ~30-px person scale — drops small-scale TPs |
+
+> **Convergent lesson.** Plan A's scale alignment is the **load-bearing piece** of the pipeline. Any post-hoc addition that doesn't explicitly preserve scale-awareness breaks something. Foundation-model components (SDXL, SAM2) do not transfer for free to small-aerial-person settings; they need domain-specific, scale-aware adaptation.
+
+### Future Direction (not executed) — GAN-based synthetic with crop-then-synthesize
+
+Conditional on resolving the scale-awareness issue across all three modules, a viable future direction is to replace the Phase 3 SDXL pipeline with a **StyleGAN2-ADA** generator trained on HERIDAL background crops, composite real persons, and apply the density-aware crop pipeline (same as Plan A) **before** training. This closes the loop on Phase 3 by ensuring synthetic samples are consumed through the same scale-aware pipeline as real samples.
+
+- **Paper:** Karras et al., "Training Generative Adversarial Networks with Limited Data (StyleGAN2-ADA)," NeurIPS 2020, [arXiv:2006.06676](https://arxiv.org/abs/2006.06676) — designed for limited-data regimes such as HERIDAL's 1,124 training images.
 
 ---
 
