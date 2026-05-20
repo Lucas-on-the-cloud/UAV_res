@@ -86,9 +86,6 @@ print(f"device={device}, torch={torch.__version__}\n")
 # ============================================================
 # STEP 3 - DOWNLOAD HERIDAL VAL VIA ROBOFLOW
 # ============================================================
-assert API_KEY != "PASTE_YOUR_ROBOFLOW_API_KEY_HERE", \
-    "Edit API_KEY in STEP 1 with your Roboflow private key first."
-
 from roboflow import Roboflow
 rf = Roboflow(api_key=API_KEY)
 project = rf.workspace(ROBOFLOW_WORKSPACE).project(ROBOFLOW_PROJECT)
