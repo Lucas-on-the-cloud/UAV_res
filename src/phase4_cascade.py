@@ -1,69 +1,29 @@
 """
-Phase 4 Module 2 — Hard-Negative Cascade Classifier on top of Plan A
+Phase 4 Module 2 - Hard-Negative Cascade Classifier on top of Plan A
 ====================================================================
 
-KAGGLE SETUP
-------------
-1. New Notebook (separate session from Module 1), accelerator = GPU T4 x1, Internet ON.
-2. Attach Plan A weights dataset: hung1244/yolov12s-heridal-crops-best
-3. Edit the API_KEY line below (line ~45) with your Roboflow private key.
-4. Paste THIS ENTIRE FILE into one Kaggle cell. Run.
-   - Installs happen at the top via subprocess (no separate cell needed).
-
-EXPECTED RUNTIME: ~2-3 hours on T4
-  - Step A (build dataset, SAHI on 1124 train images): ~40-50 min
-  - Step B (train MobileNetV3-Small, 30 epochs): ~30-60 min
-  - Step C (apply on val + eval): ~15 min
-
-OUTPUTS (saved to /kaggle/working/)
------------------------------------
-  - phase4_cascade_dataset/{train,val}/{person,not_person}/*.png   (crops)
-  - phase4_cascade_classifier.pt                                   (trained weights)
-  - phase4_cascade_predictions_coco.json                           (filtered preds)
-  - phase4_cascade_metrics.json
-  - phase4_cascade_metrics_baseline.json
+KAGGLE: paste ENTIRE file into ONE cell. Edit API_KEY line. Run.
+Required: GPU T4, Internet ON, attach any Kaggle dataset that contains
+the Plan A .pt file. Script auto-discovers it under /kaggle/input/.
+Expected runtime: 2-3 hours on T4.
 """
 
-# %% ============================================================
-# 0. INSTALLS
 # ============================================================
-import subprocess, sys
+# STEP 0 - INSTALLS
+# ============================================================
+import subprocess, sys, os
 
 def pip_install(*pkgs):
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *pkgs])
 
+print("Installing packages...")
 pip_install("ultralytics==8.4.*", "sahi==0.11.*", "pycocotools", "roboflow", "timm")
+print("Install done.\n")
 
-# %% ============================================================
-# 1. CONFIG  ← EDIT API_KEY BELOW
 # ============================================================
-import os, json, time, random
-from pathlib import Path
-import numpy as np
-import cv2
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
-
-API_KEY = "PASTE_YOUR_ROBOFLOW_API_KEY_HERE"   # ← edit this line in Kaggle before running
-
-OUT = Path("/kaggle/working")
-
-# Auto-discover Plan A weights (.pt file inside ANY attached Kaggle dataset)
-import glob
-_all_pt = sorted(glob.glob("/kaggle/input/**/*.pt", recursive=True))
-print("All .pt files found under /kaggle/input/:")
-for _p in _all_pt:
-    print(f"  {_p}")
-if not _all_pt:
-    print("/kaggle/input/ directory listing:")
-    for _d in os.listdir("/kaggle/input"):
-        print(f"  {_d}")
-    raise FileNotFoundError("No .pt under /kaggle/input/. Add Input → attach Plan A weights dataset.")
-_priority = [p for p in _all_pt if any(k in p.lower() for k in ["heridal", "crops", "best", "plan_a", "yolov12"])]
-PLAN_A_WEIGHTS = _priority[0] if _priority else _all_pt[0]
-print(f"Plan A weights selected: {PLAN_A_WEIGHTS}")
+# STEP 1 - CONFIG
+# ============================================================
+API_KEY = "PASTE_YOUR_ROBOFLOW_API_KEY_HERE"   # <- edit before running
 
 ROBOFLOW_WORKSPACE = "hung1244s-workspace"
 ROBOFLOW_PROJECT   = "heridal-lrbkc-8vnfq"
@@ -73,32 +33,69 @@ SAHI_SLICE   = 640
 SAHI_OVERLAP = 0.2
 SAHI_CONF    = 0.25
 
-# Cascade hyperparams
-CROP_SCALE   = 1.5   # pad bbox by this factor before cropping
-CROP_SIZE    = 64    # resize crops to 64x64
-IOU_TP       = 0.5   # IoU >= TP → person
-IOU_FP_MAX   = 0.1   # IoU < this → hard negative; in between = ambiguous (drop)
+CROP_SCALE = 1.5
+CROP_SIZE  = 64
+IOU_TP     = 0.5
+IOU_FP_MAX = 0.1
 
-CASCADE_THRESHOLD = 0.5   # drop bbox if person_prob < this
-SCORE_COMBINE     = "multiply"  # or "average"
+CASCADE_THRESHOLD = 0.5
+SCORE_COMBINE     = "multiply"
 
 EPOCHS = 30
 BATCH  = 64
 LR     = 1e-3
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-random.seed(42); np.random.seed(42); torch.manual_seed(42)
-print(f"device={device}")
+# ============================================================
+# STEP 2 - DEBUG: LIST /kaggle/input/ AND FIND PLAN A WEIGHTS
+# ============================================================
+import glob, json, time, random
+from pathlib import Path
+import numpy as np
+import cv2
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms
 
-# %% ============================================================
-# 2. DOWNLOAD HERIDAL (train + val)
+OUT = Path("/kaggle/working")
+random.seed(42); np.random.seed(42); torch.manual_seed(42)
+
+print("=" * 60)
+print("Listing /kaggle/input/ contents")
+print("=" * 60)
+for root, dirs, files in os.walk("/kaggle/input"):
+    for f in files:
+        full = os.path.join(root, f)
+        size_mb = os.path.getsize(full) / 1e6
+        print(f"  {full}  ({size_mb:.1f} MB)")
+    if not files and not dirs:
+        print(f"  (empty: {root})")
+print("=" * 60)
+
+_pts = sorted(glob.glob("/kaggle/input/**/*.pt", recursive=True))
+if not _pts:
+    raise FileNotFoundError(
+        "No .pt file under /kaggle/input/. Go to right sidebar -> "
+        "'+ Add Input' -> search your Plan A weights dataset -> Add."
+    )
+_priority = [p for p in _pts if any(k in p.lower() for k in ["heridal", "crops", "best", "plan_a", "yolov12"])]
+PLAN_A_WEIGHTS = _priority[0] if _priority else _pts[0]
+print(f"\nPlan A weights selected: {PLAN_A_WEIGHTS}\n")
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"device={device}, torch={torch.__version__}\n")
+
+# ============================================================
+# STEP 3 - DOWNLOAD HERIDAL (train + val)
 # ============================================================
 assert API_KEY != "PASTE_YOUR_ROBOFLOW_API_KEY_HERE", \
-    "Edit API_KEY in the CONFIG cell with your Roboflow private key first."
+    "Edit API_KEY in STEP 1 with your Roboflow private key first."
+
 from roboflow import Roboflow
 rf = Roboflow(api_key=API_KEY)
 project = rf.workspace(ROBOFLOW_WORKSPACE).project(ROBOFLOW_PROJECT)
 dataset = project.version(ROBOFLOW_VERSION).download("coco", location=str(OUT / "heridal"))
+print(f"Downloaded HERIDAL to {dataset.location}")
 
 TRAIN_IMG_DIR = Path(dataset.location) / "train"
 TRAIN_ANN     = TRAIN_IMG_DIR / "_annotations.coco.json"
@@ -107,25 +104,25 @@ VAL_ANN       = VAL_IMG_DIR / "_annotations.coco.json"
 
 with open(TRAIN_ANN) as f: coco_train = json.load(f)
 with open(VAL_ANN)   as f: coco_val   = json.load(f)
-print(f"Train: {len(coco_train['images'])} images, Val: {len(coco_val['images'])} images")
+print(f"Train: {len(coco_train['images'])} images, Val: {len(coco_val['images'])} images\n")
 
-# %% ============================================================
-# 3. PLAN A SAHI INFERENCE  (train: for cascade data; val: for final eval)
+# ============================================================
+# STEP 4 - PLAN A SAHI INFERENCE (train + val)
 # ============================================================
 from sahi import AutoDetectionModel
 from sahi.predict import get_sliced_prediction
 
+print("Loading Plan A model...")
 det_model = AutoDetectionModel.from_pretrained(
     model_type="ultralytics",
     model_path=PLAN_A_WEIGHTS,
     confidence_threshold=SAHI_CONF,
     device=device,
 )
+print("Plan A loaded.\n")
 
 def run_sahi(img_dir, coco_dict, tag):
-    """Returns: {image_id: [(bbox_xyxy, score), ...]}"""
-    preds = {}
-    coco_preds = []
+    preds = {}; coco_preds = []
     t0 = time.time()
     for i, img_info in enumerate(coco_dict["images"]):
         img_path = img_dir / img_info["file_name"]
@@ -150,34 +147,28 @@ def run_sahi(img_dir, coco_dict, tag):
                 "score": sc,
             })
         preds[img_info["id"]] = (img_path, bbs)
-        if (i+1) % 50 == 0:
+        if (i + 1) % 50 == 0:
             print(f"  [{tag}] SAHI {i+1}/{len(coco_dict['images'])}  elapsed={time.time()-t0:.0f}s")
     return preds, coco_preds
 
-print("Running SAHI on TRAIN (for cascade dataset)...")
+print("SAHI on TRAIN (~40-50 min)...")
 train_preds, _ = run_sahi(TRAIN_IMG_DIR, coco_train, "train")
-
-print("Running SAHI on VAL (for final eval)...")
+print("SAHI on VAL (~10-15 min)...")
 val_preds, baseline_coco_preds = run_sahi(VAL_IMG_DIR, coco_val, "val")
 with open(OUT / "phase4_planA_predictions_coco.json", "w") as f:
     json.dump(baseline_coco_preds, f)
 
-# %% ============================================================
-# 4. MATCH PREDICTIONS vs GT → BUILD CASCADE CROPS DATASET
+# ============================================================
+# STEP 5 - BUILD CASCADE CROPS DATASET FROM TRAIN PREDS vs GT
 # ============================================================
 def bbox_iou(a, b):
-    ax1, ay1, ax2, ay2 = a
-    bx1, by1, bx2, by2 = b
+    ax1, ay1, ax2, ay2 = a; bx1, by1, bx2, by2 = b
     ix1, iy1 = max(ax1, bx1), max(ay1, by1)
     ix2, iy2 = min(ax2, bx2), min(ay2, by2)
     iw = max(0, ix2 - ix1); ih = max(0, iy2 - iy1)
     inter = iw * ih
-    a_area = (ax2-ax1) * (ay2-ay1)
-    b_area = (bx2-bx1) * (by2-by1)
-    union = a_area + b_area - inter
-    return inter / max(union, 1e-6)
+    return inter / max((ax2-ax1)*(ay2-ay1) + (bx2-bx1)*(by2-by1) - inter, 1e-6)
 
-# Build {image_id: [gt_bbox_xyxy, ...]}
 gt_by_img = {}
 for ann in coco_train["annotations"]:
     img_id = ann["image_id"]
@@ -197,34 +188,28 @@ def save_crop(img, bbox, out_path):
     nx2 = min(img.shape[1], int(cx + w/2))
     ny2 = min(img.shape[0], int(cy + h/2))
     if nx2 <= nx1 or ny2 <= ny1: return False
-    crop = img[ny1:ny2, nx1:nx2]
-    crop = cv2.resize(crop, (CROP_SIZE, CROP_SIZE))
-    cv2.imwrite(str(out_path), crop)
-    return True
+    crop = cv2.resize(img[ny1:ny2, nx1:nx2], (CROP_SIZE, CROP_SIZE))
+    cv2.imwrite(str(out_path), crop); return True
 
 n_pos, n_neg, n_ambig = 0, 0, 0
 for img_id, (img_path, bbs) in train_preds.items():
     img = cv2.imread(str(img_path))
     gts = gt_by_img.get(img_id, [])
-    # split 90/10 train/val within cascade dataset
-    cascade_split = "val" if (img_id % 10 == 0) else "train"
+    split = "val" if (img_id % 10 == 0) else "train"
     for j, (bbox, score) in enumerate(bbs):
-        if not gts:
-            iou_max = 0.0
-        else:
-            iou_max = max(bbox_iou(bbox, g) for g in gts)
+        iou_max = max((bbox_iou(bbox, g) for g in gts), default=0.0)
         if iou_max >= IOU_TP:
             cls = "person"; n_pos += 1
         elif iou_max < IOU_FP_MAX:
             cls = "not_person"; n_neg += 1
         else:
             n_ambig += 1; continue
-        save_crop(img, bbox, DATA_DIR / cascade_split / cls / f"{img_id}_{j}.png")
+        save_crop(img, bbox, DATA_DIR / split / cls / f"{img_id}_{j}.png")
 
-print(f"Cascade dataset: person={n_pos}, not_person={n_neg}, ambig_dropped={n_ambig}")
+print(f"Cascade dataset: person={n_pos}, not_person={n_neg}, ambig_dropped={n_ambig}\n")
 
-# %% ============================================================
-# 5. TRAIN MOBILENETV3-SMALL CLASSIFIER
+# ============================================================
+# STEP 6 - TRAIN MOBILENETV3-SMALL
 # ============================================================
 import timm
 
@@ -250,15 +235,14 @@ class CascadeDS(Dataset):
         random.shuffle(self.samples)
     def __len__(self): return len(self.samples)
     def __getitem__(self, i):
-        p, label = self.samples[i]
+        p, y = self.samples[i]
         img = cv2.cvtColor(cv2.imread(str(p)), cv2.COLOR_BGR2RGB)
-        return self.tf(img), label
+        return self.tf(img), y
 
 train_ds = CascadeDS(DATA_DIR / "train", train_tf)
 val_ds   = CascadeDS(DATA_DIR / "val", val_tf)
 print(f"Cascade train={len(train_ds)}, val={len(val_ds)}")
 
-# Class-balanced sampling to handle imbalance
 labels = np.array([y for _, y in train_ds.samples])
 class_counts = np.bincount(labels)
 weights = 1.0 / class_counts[labels]
@@ -266,34 +250,27 @@ sampler = torch.utils.data.WeightedRandomSampler(weights, len(weights), replacem
 train_loader = DataLoader(train_ds, batch_size=BATCH, sampler=sampler, num_workers=2)
 val_loader   = DataLoader(val_ds, batch_size=BATCH, shuffle=False, num_workers=2)
 
-model = timm.create_model("mobilenetv3_small_100", pretrained=True, num_classes=2)
-model = model.to(device)
+model = timm.create_model("mobilenetv3_small_100", pretrained=True, num_classes=2).to(device)
 opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
 sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=EPOCHS)
 ce = nn.CrossEntropyLoss()
 
 best_val_acc = 0.0
 for ep in range(EPOCHS):
-    model.train()
-    tr_loss = 0
+    model.train(); tr_loss = 0
     for x, y in train_loader:
         x, y = x.to(device), y.to(device)
         opt.zero_grad()
-        logits = model(x)
-        loss = ce(logits, y)
-        loss.backward(); opt.step()
+        loss = ce(model(x), y); loss.backward(); opt.step()
         tr_loss += loss.item()
     sched.step()
-    # val
     model.eval()
-    correct, total = 0, 0
-    tp, fp, fn = 0, 0, 0
+    correct = total = tp = fp = fn = 0
     with torch.no_grad():
         for x, y in val_loader:
             x, y = x.to(device), y.to(device)
             pred = model(x).argmax(1)
-            correct += (pred == y).sum().item()
-            total += y.size(0)
+            correct += (pred == y).sum().item(); total += y.size(0)
             tp += ((pred == 1) & (y == 1)).sum().item()
             fp += ((pred == 1) & (y == 0)).sum().item()
             fn += ((pred == 0) & (y == 1)).sum().item()
@@ -304,11 +281,11 @@ for ep in range(EPOCHS):
         best_val_acc = val_acc
         torch.save(model.state_dict(), OUT / "phase4_cascade_classifier.pt")
 
-print(f"Best val acc: {best_val_acc:.4f}")
+print(f"Best val acc: {best_val_acc:.4f}\n")
 model.load_state_dict(torch.load(OUT / "phase4_cascade_classifier.pt"))
 
-# %% ============================================================
-# 6. APPLY CASCADE ON VAL PLAN A PREDICTIONS
+# ============================================================
+# STEP 7 - APPLY CASCADE ON VAL PLAN A PREDS
 # ============================================================
 model.eval()
 
@@ -320,22 +297,16 @@ def cascade_filter(img, bbox, score):
     nx2 = min(img.shape[1], int(cx + w/2))
     ny2 = min(img.shape[0], int(cy + h/2))
     if nx2 <= nx1 or ny2 <= ny1: return None, 0.0
-    crop = img[ny1:ny2, nx1:nx2]
-    crop = cv2.resize(crop, (CROP_SIZE, CROP_SIZE))
-    crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+    crop = cv2.cvtColor(cv2.resize(img[ny1:ny2, nx1:nx2], (CROP_SIZE, CROP_SIZE)), cv2.COLOR_BGR2RGB)
     x = val_tf(crop).unsqueeze(0).to(device)
     with torch.no_grad():
         p = torch.softmax(model(x), dim=1)[0, 1].item()
-    if p < CASCADE_THRESHOLD:
-        return None, p
-    if SCORE_COMBINE == "multiply":
-        new_score = score * p
-    else:
-        new_score = 0.5 * score + 0.5 * p
+    if p < CASCADE_THRESHOLD: return None, p
+    new_score = score * p if SCORE_COMBINE == "multiply" else 0.5 * score + 0.5 * p
     return bbox, new_score
 
 cascade_preds = []
-n_kept, n_dropped = 0, 0
+n_kept = n_dropped = 0
 for img_id, (img_path, bbs) in val_preds.items():
     img = cv2.imread(str(img_path))
     for bbox, score in bbs:
@@ -351,10 +322,10 @@ for img_id, (img_path, bbs) in val_preds.items():
         n_kept += 1
 with open(OUT / "phase4_cascade_predictions_coco.json", "w") as f:
     json.dump(cascade_preds, f)
-print(f"Cascade applied: kept={n_kept}, dropped={n_dropped} ({n_dropped/(n_kept+n_dropped)*100:.1f}% filtered)")
+print(f"Cascade applied: kept={n_kept}, dropped={n_dropped} ({n_dropped/max(n_kept+n_dropped,1)*100:.1f}% filtered)\n")
 
-# %% ============================================================
-# 7. PYCOCOTOOLS EVAL  (Plan A baseline vs Plan A + Cascade)
+# ============================================================
+# STEP 8 - PYCOCOTOOLS EVAL
 # ============================================================
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
@@ -367,15 +338,15 @@ def eval_coco(pred_path, name):
     return {
         "name": name,
         "mAP50_95": float(e.stats[0]), "mAP50": float(e.stats[1]),
-        "mAP75":    float(e.stats[2]), "AP_small": float(e.stats[3]),
-        "AP_medium":float(e.stats[4]), "AP_large": float(e.stats[5]),
-        "AR_100":   float(e.stats[8]),
+        "mAP75": float(e.stats[2]), "AP_small": float(e.stats[3]),
+        "AP_medium": float(e.stats[4]), "AP_large": float(e.stats[5]),
+        "AR_100": float(e.stats[8]),
     }
 
 print("\n=== Plan A baseline ===")
 baseline_metrics = eval_coco(OUT / "phase4_planA_predictions_coco.json", "Plan A")
 print("\n=== Plan A + Cascade ===")
-cascade_metrics  = eval_coco(OUT / "phase4_cascade_predictions_coco.json", "Plan A + Cascade")
+cascade_metrics = eval_coco(OUT / "phase4_cascade_predictions_coco.json", "Plan A + Cascade")
 
 with open(OUT / "phase4_cascade_metrics_baseline.json", "w") as f:
     json.dump(baseline_metrics, f, indent=2)
@@ -385,6 +356,6 @@ with open(OUT / "phase4_cascade_metrics.json", "w") as f:
 print("\n=== DELTA (Cascade vs Plan A) ===")
 for k in ["mAP50", "mAP50_95", "mAP75", "AP_small", "AR_100"]:
     d = cascade_metrics[k] - baseline_metrics[k]
-    print(f"  {k:10s}  {baseline_metrics[k]:.4f}  →  {cascade_metrics[k]:.4f}   Δ {d:+.4f}")
+    print(f"  {k:10s}  {baseline_metrics[k]:.4f}  ->  {cascade_metrics[k]:.4f}   delta {d:+.4f}")
 
-print("\nDONE. Download phase4_cascade_*.json + phase4_cascade_classifier.pt from /kaggle/working/")
+print("\nDONE. Outputs in /kaggle/working/: phase4_cascade_*.json, phase4_cascade_classifier.pt")
