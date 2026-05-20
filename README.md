@@ -7,17 +7,19 @@ A research project on **real-time UAV-based person detection for Search and Resc
 ## Table of Contents
 
 1. [Project Overview Diagram](#1-project-overview-diagram)
-2. [Headline Results](#2-headline-results)
-3. [Current Status](#3-current-status)
-4. [Phase 1 — VisDrone Baseline](#4-phase-1--visdrone-baseline)
-5. [Phase 2 — HERIDAL Baseline](#5-phase-2--heridal-baseline)
-6. [Phase 2.5 — Plan A: Density-aware Crops + SAHI ⭐](#6-phase-25--plan-a-density-aware-crops--sahi-)
-7. [Phase 3 — Synthetic Data Augmentation (Negative Result)](#7-phase-3--synthetic-data-augmentation-negative-result)
-8. [Qualitative Results & Observed Failure Modes](#8-qualitative-results--observed-failure-modes)
-9. [Phase 4 — Planned Work](#9-phase-4--planned-work)
-10. [Repository Structure](#10-repository-structure)
-11. [Tech Stack & Compute](#11-tech-stack--compute)
-12. [Citations](#12-citations)
+2. [Base Detector & Contribution Stack](#2-base-detector--contribution-stack)
+3. [Why Two Datasets? VisDrone → HERIDAL Rationale](#3-why-two-datasets-visdrone--heridal-rationale)
+4. [Headline Results](#4-headline-results)
+5. [Current Status](#5-current-status)
+6. [Phase 1 — VisDrone Baseline](#6-phase-1--visdrone-baseline)
+7. [Phase 2 — HERIDAL Baseline](#7-phase-2--heridal-baseline)
+8. [Phase 2.5 — Plan A: Density-aware Crops + SAHI ⭐](#8-phase-25--plan-a-density-aware-crops--sahi-)
+9. [Phase 3 — Synthetic Data Augmentation (Negative Result)](#9-phase-3--synthetic-data-augmentation-negative-result)
+10. [Qualitative Results & Observed Failure Modes](#10-qualitative-results--observed-failure-modes)
+11. [Phase 4 — Planned Work](#11-phase-4--planned-work)
+12. [Repository Structure](#12-repository-structure)
+13. [Tech Stack & Compute](#13-tech-stack--compute)
+14. [Citations](#14-citations)
 
 ---
 
@@ -76,7 +78,86 @@ flowchart TB
 
 ---
 
-## 2. Headline Results
+## 2. Base Detector & Contribution Stack
+
+### 2.1 Base detector — held constant across all phases
+
+**YOLOv12-s** ([Tian et al., NeurIPS 2025](https://arxiv.org/abs/2502.12524); [code](https://github.com/sunsmarterjie/yolov12)) is used as the base detector throughout the project. It is **never modified** — same architecture, same backbone, same head, same loss, same released weights initialization.
+
+This is a deliberate methodological choice:
+
+- The project's research question is *"how can we improve aerial SAR person detection through data and pipeline design?"*, not *"can we design a better detector architecture?"*
+- Holding the detector fixed makes the contribution **clean and attributable**: every improvement reported below comes from outside the model (dataset, preprocessing, inference, post-processing), so the deltas cannot be confused with architectural advantages of one detector over another.
+- Reproducibility is easier — anyone can swap YOLOv12-s for YOLOv8/YOLOv11/RT-DETR and re-run the pipeline to see whether the contribution generalizes.
+
+The implementation choice (YOLOv12-s vs -n vs -m) was decided in Phase 1 on VisDrone (see [Phase 1](#6-phase-1--visdrone-baseline) and [results/comparison_n_vs_s.md](results/comparison_n_vs_s.md)) and locked in before Phase 2 began.
+
+### 2.2 Contribution stack — cumulative improvements over the base detector
+
+Each phase adds **one** clearly-scoped change to the pipeline. The mAP@0.5 column shows the cumulative number; the Δ column attributes the change to that specific phase.
+
+| Phase | What is added to the base detector | Where it lives | mAP@0.5 | Δ vs prev | Δ cumulative |
+|---|---|---|---|---|---|
+| **Phase 1** (reference) | YOLOv12-s trained on **VisDrone** (urban aerial smoke test) | Dataset | 0.552 | — | — |
+| **Phase 2** | Same YOLOv12-s, but trained on **HERIDAL** (target domain: wilderness) | Dataset | 0.759 | **+0.207** | +0.207 (vs VisDrone) |
+| **Phase 2.5 — Plan A** ⭐ | Same YOLOv12-s + **density-aware native-resolution crops** during training + **SAHI sliced inference** | Data preprocessing + inference | **0.872** | **+0.113** | **+0.320** (vs VisDrone) |
+| Phase 3 (failed) | Same YOLOv12-s + SDXL / HERIDAL composite synthetic data | Data augmentation | 0.013 / 0.000 | −0.859 / −0.872 | regression (documented as negative result) |
+| Phase 4 (planned) | Same YOLOv12-s + Plan A + **cascade FP filter** + **SAM2 bbox refinement** | Post-processing | ? | ? (target +0.02–0.05) | — |
+
+**Reading this table:** every row uses the same YOLOv12-s. The improvement at each row attaches to the **outside-the-model** change introduced in that phase. Phase 2.5 (Plan A) is the only phase whose contribution stacks cleanly on top of the previous phase's contribution; Phase 3 was an attempted addition that did not stack and is reported as a negative result.
+
+### 2.3 What changes at each pipeline stage
+
+| Pipeline stage | Phase 1 | Phase 2 | Phase 2.5 (Plan A) | Phase 3 (failed) | Phase 4 (planned) |
+|---|---|---|---|---|---|
+| Detector architecture | YOLOv12-s | YOLOv12-s | YOLOv12-s | YOLOv12-s | YOLOv12-s |
+| Training data source | VisDrone person | HERIDAL raw | HERIDAL raw | HERIDAL raw + synthetic | HERIDAL raw |
+| Training preprocessing | resize 640 | resize 640 | **density crops 640 (native)** ⭐ | mix raw + synthetic ❌ | density crops 640 |
+| Inference preprocessing | resize 640 | resize 640 | **SAHI 640 tiles (native)** ⭐ | SAHI 640 tiles | SAHI 640 tiles |
+| Post-processing | NMS | NMS | NMS | NMS | **cascade FP filter + SAM2 refinement** ⭐ |
+
+Only the cells in bold are modified relative to the base pipeline. This makes the contribution surface visible at a glance.
+
+---
+
+## 3. Why Two Datasets? VisDrone → HERIDAL Rationale
+
+The project trains on two aerial datasets in sequence. Both are real (not synthetic), both contain aerial views with persons, but they serve **different purposes** in the methodology.
+
+### 3.1 The two datasets at a glance
+
+| Property | **VisDrone-DET** (Phase 1) | **HERIDAL** (Phase 2 onwards) |
+|---|---|---|
+| Domain | Urban aerial (streets, buildings, vehicles) | Wilderness aerial (forests, mountains, rocks) |
+| Altitude | Low-to-mid (drone, oblique angle common) | Higher altitude, near-top-down |
+| Image size | ~2000×1500 | **4000×3000** |
+| Train images | 5,684 (person-filtered) | 1,124 |
+| Typical person size | ~30–80 px (varied) | **~30 px (small, fairly uniform)** |
+| Background | High clutter (cars, signs, people crowds) | Low semantic clutter, high visual texture (foliage, rocks) |
+| SAR-relevant? | **No** (urban, target rich) | **Yes** (wilderness, target sparse) — actual SAR scenario |
+| Availability | Open, large, well-benchmarked | Open (requires email request), smaller, less common |
+
+### 3.2 Why train on VisDrone first if the target is HERIDAL?
+
+VisDrone is **not the target deployment domain**, but it serves three concrete purposes before moving to HERIDAL:
+
+1. **Setup smoke test.** YOLOv12 is a recent release (NeurIPS 2025) and its Ultralytics integration was new at project start. Phase 1 confirms the full training/eval/visualization pipeline works end-to-end on a well-benchmarked dataset before betting on HERIDAL. If something is broken in the setup, it shows up here against known numbers — not on the harder target dataset where any anomaly is ambiguous.
+
+2. **Model-size ablation (-n vs -s).** Phase 1 is where the YOLOv12 variant is selected. VisDrone has enough data (5,684 train images) to make the comparison statistically meaningful, whereas HERIDAL's 1,124 images would make the n-vs-s gap noisy. Result: -s wins by +0.076 mAP@0.5 over -n at modest compute cost — see [results/comparison_n_vs_s.md](results/comparison_n_vs_s.md). YOLOv12-s is then **locked in** for every downstream phase.
+
+3. **Cross-domain reference number.** VisDrone is the de-facto urban-aerial benchmark; reporting Phase 1 numbers situates this work against the broader community. It also enables the **Phase 1 → Phase 2 domain comparison** ([results/comparison_visdrone_vs_heridal.md](results/comparison_visdrone_vs_heridal.md)), which is itself a useful finding: HERIDAL outperforms VisDrone (0.759 vs 0.552) despite 5× less data, because wilderness backgrounds are semantically simpler than urban ones — an insight that informs the failure-mode analysis in [section 10](#10-qualitative-results--observed-failure-modes).
+
+### 3.3 Why HERIDAL is the actual target
+
+HERIDAL is the real SAR scenario. Wilderness search-and-rescue UAV missions look exactly like HERIDAL: high-altitude near-top-down views of forests / mountains / open ground, with tiny persons against natural backgrounds and natural distractors (rocks, huts, dense vegetation). VisDrone's urban person crowds bear little resemblance to this. Any contribution that does not move HERIDAL numbers is not contributing to the actual problem; this is why **Plan A's gain is measured on HERIDAL**, not VisDrone.
+
+### 3.4 In short
+
+> VisDrone is the **methodology validation set** — used to debug the pipeline and pick the model variant. HERIDAL is the **target evaluation set** — every contribution after Phase 1 is measured against the HERIDAL baseline.
+
+---
+
+## 4. Headline Results
 
 | Stage | mAP@0.5 | mAP@0.5:0.95 | AP_small | Detail |
 |---|---|---|---|---|
@@ -91,7 +172,7 @@ flowchart TB
 
 ---
 
-## 3. Current Status
+## 5. Current Status
 
 | Phase | Weeks | Status |
 |---|---|---|
@@ -105,7 +186,9 @@ flowchart TB
 
 ---
 
-## 4. Phase 1 — VisDrone Baseline
+## 6. Phase 1 — VisDrone Baseline
+
+> **Role in the project:** methodology validation + model-variant ablation. Not the target deployment domain. See [section 3](#3-why-two-datasets-visdrone--heridal-rationale) for the full rationale.
 
 ### Method
 
@@ -129,7 +212,9 @@ YOLOv12-s selected (Δ mAP@0.5 = +0.076 over -n at modest compute cost). Detaile
 
 ---
 
-## 5. Phase 2 — HERIDAL Baseline
+## 7. Phase 2 — HERIDAL Baseline
+
+> **Role in the project:** **first measurement on the actual target domain** (wilderness SAR). All subsequent contributions (Phase 2.5, Phase 3, Phase 4) are evaluated against this number.
 
 ### Method
 
@@ -158,7 +243,7 @@ mAP@0.5 is reasonable (0.759) but mAP@0.5:0.95 is low (0.344) — the model **fi
 
 ---
 
-## 6. Phase 2.5 — Plan A: Density-aware Crops + SAHI ⭐
+## 8. Phase 2.5 — Plan A: Density-aware Crops + SAHI ⭐
 
 This is the **main contribution** of the project. Full write-up: [results/plan_a_analysis.md](results/plan_a_analysis.md). Raw metrics: [results/plan_a_density_crops_result.json](results/plan_a_density_crops_result.json).
 
@@ -217,7 +302,7 @@ This is the central finding of the project. The Phase 3 negative result below co
 
 ---
 
-## 7. Phase 3 — Synthetic Data Augmentation (Negative Result)
+## 9. Phase 3 — Synthetic Data Augmentation (Negative Result)
 
 Full write-up of failure and diagnosis: [docs/phase3_lessons_learned.md](docs/phase3_lessons_learned.md). Pivot from AirSim to diffusion (msgpack-rpc-python incompatibility): [docs/phase3_pivot_to_diffusion.md](docs/phase3_pivot_to_diffusion.md).
 
@@ -279,7 +364,7 @@ Plan A weights are preserved and remain the project's working baseline; Phase 3 
 
 ---
 
-## 8. Qualitative Results & Observed Failure Modes
+## 10. Qualitative Results & Observed Failure Modes
 
 ![Plan A predictions on HERIDAL val (10 samples)](results/visualizations/grid_montage.png)
 
@@ -299,7 +384,7 @@ These are the targets for Phase 4 post-processing (cascade classifier + SAM2 ref
 
 ---
 
-## 9. Phase 4 — Planned Work
+## 11. Phase 4 — Planned Work
 
 Phase 4 is the next research direction, currently in proposal stage. Two complementary techniques targeting Plan A's two remaining issues:
 
@@ -323,7 +408,7 @@ Replace the Phase 3 SDXL pipeline with a **StyleGAN2-ADA** generator trained on 
 
 ---
 
-## 10. Repository Structure
+## 12. Repository Structure
 
 ```
 UAV_res/
@@ -356,7 +441,7 @@ UAV_res/
 
 ---
 
-## 11. Tech Stack & Compute
+## 13. Tech Stack & Compute
 
 **Stack**
 - PyTorch 2.10 + CUDA 12.8 (nightly required on RTX 5090 Blackwell sm_120)
@@ -373,7 +458,7 @@ UAV_res/
 
 ---
 
-## 12. Citations
+## 14. Citations
 
 ### Base detector
 - Tian, Y., Ye, Q., & Doermann, D. (2025). **YOLOv12: Attention-Centric Real-Time Object Detectors.** *NeurIPS 2025.* [arXiv:2502.12524](https://arxiv.org/abs/2502.12524) · [Code](https://github.com/sunsmarterjie/yolov12)
