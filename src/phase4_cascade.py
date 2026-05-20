@@ -4,10 +4,11 @@ Phase 4 Module 2 — Hard-Negative Cascade Classifier on top of Plan A
 
 KAGGLE SETUP
 ------------
-1. New Notebook (separate from Module 1), accelerator = GPU T4 x1.
-2. Attach Plan A weights dataset:  hung1244/yolov12s-heridal-crops-best
-3. Add Secret `ROBOFLOW_API_KEY`.
-4. Paste this entire file into one cell, run.
+1. New Notebook (separate session from Module 1), accelerator = GPU T4 x1, Internet ON.
+2. Attach Plan A weights dataset: hung1244/yolov12s-heridal-crops-best
+3. Edit the API_KEY line below (line ~45) with your Roboflow private key.
+4. Paste THIS ENTIRE FILE into one Kaggle cell. Run.
+   - Installs happen at the top via subprocess (no separate cell needed).
 
 EXPECTED RUNTIME: ~2-3 hours on T4
   - Step A (build dataset, SAHI on 1124 train images): ~40-50 min
@@ -21,16 +22,20 @@ OUTPUTS (saved to /kaggle/working/)
   - phase4_cascade_predictions_coco.json                           (filtered preds)
   - phase4_cascade_metrics.json
   - phase4_cascade_metrics_baseline.json
-  - phase4_cascade_confusion.png
 """
 
 # %% ============================================================
 # 0. INSTALLS
 # ============================================================
-# !pip install -q ultralytics==8.4.* sahi==0.11.* pycocotools roboflow timm
+import subprocess, sys
+
+def pip_install(*pkgs):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *pkgs])
+
+pip_install("ultralytics==8.4.*", "sahi==0.11.*", "pycocotools", "roboflow", "timm")
 
 # %% ============================================================
-# 1. CONFIG
+# 1. CONFIG  ← EDIT API_KEY BELOW
 # ============================================================
 import os, json, time, random
 from pathlib import Path
@@ -40,7 +45,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
-from kaggle_secrets import UserSecretsClient
+
+API_KEY = "PASTE_YOUR_ROBOFLOW_API_KEY_HERE"   # ← edit this line in Kaggle before running
 
 OUT = Path("/kaggle/working")
 PLAN_A_WEIGHTS = "/kaggle/input/yolov12s-heridal-crops-best/yolov12s_heridal_crops_BEST.pt"
@@ -73,9 +79,10 @@ print(f"device={device}")
 # %% ============================================================
 # 2. DOWNLOAD HERIDAL (train + val)
 # ============================================================
-api_key = UserSecretsClient().get_secret("ROBOFLOW_API_KEY")
+assert API_KEY != "PASTE_YOUR_ROBOFLOW_API_KEY_HERE", \
+    "Edit API_KEY in the CONFIG cell with your Roboflow private key first."
 from roboflow import Roboflow
-rf = Roboflow(api_key=api_key)
+rf = Roboflow(api_key=API_KEY)
 project = rf.workspace(ROBOFLOW_WORKSPACE).project(ROBOFLOW_PROJECT)
 dataset = project.version(ROBOFLOW_VERSION).download("coco", location=str(OUT / "heridal"))
 

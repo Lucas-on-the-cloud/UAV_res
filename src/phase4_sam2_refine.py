@@ -4,11 +4,12 @@ Phase 4 Module 1 — SAM2 Bbox Refinement on top of Plan A
 
 KAGGLE SETUP
 ------------
-1. New Notebook, accelerator = GPU T4 x1.
-2. Attach datasets:
-     - Add Plan A weights:   hung1244/yolov12s-heridal-crops-best
-3. Add Secret `ROBOFLOW_API_KEY` (Roboflow account → settings → private API key).
-4. Paste this entire file into one cell, run.
+1. New Notebook, accelerator = GPU T4 x1, Internet ON.
+2. Attach Plan A weights dataset: hung1244/yolov12s-heridal-crops-best
+3. Edit the API_KEY line below (line ~40) with your Roboflow private key
+   (https://app.roboflow.com → Settings → Roboflow API → Private API Key).
+4. Paste THIS ENTIRE FILE into one Kaggle cell. Run.
+   - Installs happen at the top via subprocess (no separate cell needed).
 
 EXPECTED RUNTIME: ~30-60 minutes on T4 (313 val images, ~3-5 bboxes per image).
 
@@ -21,25 +22,38 @@ OUTPUTS (saved to /kaggle/working/)
 """
 
 # %% ============================================================
-# 0. INSTALLS (Kaggle cell)
+# 0. INSTALLS (run inline — works whether pasted into Jupyter cell or run as .py)
 # ============================================================
-# !pip install -q ultralytics==8.4.* sahi==0.11.* pycocotools roboflow
-# !pip install -q git+https://github.com/facebookresearch/sam2.git
-# !wget -q https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_small.pt -O /kaggle/working/sam2_hiera_small.pt
+import subprocess, sys, urllib.request, os
+
+def pip_install(*pkgs):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *pkgs])
+
+pip_install("ultralytics==8.4.*", "sahi==0.11.*", "pycocotools", "roboflow")
+pip_install("git+https://github.com/facebookresearch/sam2.git")
+
+SAM2_CKPT_PATH = "/kaggle/working/sam2_hiera_small.pt"
+if not os.path.exists(SAM2_CKPT_PATH):
+    print("Downloading SAM2 checkpoint...")
+    urllib.request.urlretrieve(
+        "https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_small.pt",
+        SAM2_CKPT_PATH,
+    )
 
 # %% ============================================================
-# 1. CONFIG
+# 1. CONFIG  ← EDIT API_KEY BELOW
 # ============================================================
-import os, json, time, sys
+import json, time
 from pathlib import Path
 import numpy as np
 import cv2
 import torch
-from kaggle_secrets import UserSecretsClient
+
+API_KEY = "PASTE_YOUR_ROBOFLOW_API_KEY_HERE"   # ← edit this line in Kaggle before running
 
 OUT = Path("/kaggle/working")
 PLAN_A_WEIGHTS = "/kaggle/input/yolov12s-heridal-crops-best/yolov12s_heridal_crops_BEST.pt"
-SAM2_CKPT      = "/kaggle/working/sam2_hiera_small.pt"
+SAM2_CKPT      = SAM2_CKPT_PATH
 SAM2_CFG       = "sam2_hiera_s.yaml"
 
 # Roboflow dataset
@@ -63,9 +77,10 @@ print(f"device={device}, torch={torch.__version__}")
 # %% ============================================================
 # 2. DOWNLOAD HERIDAL VAL VIA ROBOFLOW
 # ============================================================
-api_key = UserSecretsClient().get_secret("ROBOFLOW_API_KEY")
+assert API_KEY != "PASTE_YOUR_ROBOFLOW_API_KEY_HERE", \
+    "Edit API_KEY in the CONFIG cell with your Roboflow private key first."
 from roboflow import Roboflow
-rf = Roboflow(api_key=api_key)
+rf = Roboflow(api_key=API_KEY)
 project = rf.workspace(ROBOFLOW_WORKSPACE).project(ROBOFLOW_PROJECT)
 dataset = project.version(ROBOFLOW_VERSION).download("coco", location=str(OUT / "heridal"))
 print("Downloaded HERIDAL to", dataset.location)
