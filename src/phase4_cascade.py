@@ -50,12 +50,20 @@ API_KEY = "PASTE_YOUR_ROBOFLOW_API_KEY_HERE"   # ← edit this line in Kaggle be
 
 OUT = Path("/kaggle/working")
 
-# Auto-discover Plan A weights (.pt file inside the attached Kaggle dataset)
+# Auto-discover Plan A weights (.pt file inside ANY attached Kaggle dataset)
 import glob
-_w = sorted(glob.glob("/kaggle/input/yolov12s-heridal-crops-best/**/*.pt", recursive=True))
-assert _w, "No .pt found under /kaggle/input/yolov12s-heridal-crops-best/. Attach the dataset (Add Input → hung1244/yolov12s-heridal-crops-best)."
-PLAN_A_WEIGHTS = _w[0]
-print(f"Plan A weights: {PLAN_A_WEIGHTS}")
+_all_pt = sorted(glob.glob("/kaggle/input/**/*.pt", recursive=True))
+print("All .pt files found under /kaggle/input/:")
+for _p in _all_pt:
+    print(f"  {_p}")
+if not _all_pt:
+    print("/kaggle/input/ directory listing:")
+    for _d in os.listdir("/kaggle/input"):
+        print(f"  {_d}")
+    raise FileNotFoundError("No .pt under /kaggle/input/. Add Input → attach Plan A weights dataset.")
+_priority = [p for p in _all_pt if any(k in p.lower() for k in ["heridal", "crops", "best", "plan_a", "yolov12"])]
+PLAN_A_WEIGHTS = _priority[0] if _priority else _all_pt[0]
+print(f"Plan A weights selected: {PLAN_A_WEIGHTS}")
 
 ROBOFLOW_WORKSPACE = "hung1244s-workspace"
 ROBOFLOW_PROJECT   = "heridal-lrbkc-8vnfq"
