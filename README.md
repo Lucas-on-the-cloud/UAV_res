@@ -1,6 +1,58 @@
 # UAV Search & Rescue Person Detection
 
-A research project on **real-time UAV-based person detection for Search and Rescue (SAR)** in wilderness aerial imagery. The main contribution is a **density-aware training crops + SAHI sliced inference pipeline** ([Plan A](docs/phase3_lessons_learned.md)) that pushes YOLOv12-s on HERIDAL from a baseline of mAP@0.5 = 0.759 to **mAP@0.5 = 0.872** without modifying the detector architecture.
+> Real-time UAV person detection for wilderness Search and Rescue. Built on YOLOv12-s + HERIDAL; main contribution is a **density-aware training crops + SAHI sliced inference pipeline** ([Plan A](results/plan_a_analysis.md)) that improves HERIDAL mAP@0.5 from a baseline of 0.759 to **0.872** without modifying the detector architecture.
+
+---
+
+## Introduction
+
+### The problem we are solving
+
+When a person goes missing in a wilderness area — hikers lost in forests, mountaineers stranded on slopes, survivors in flooded or earthquake-hit regions — **the search radius grows quadratically with elapsed time**, and ground search teams cover terrain slowly. Unmanned aerial vehicles (UAVs / drones) can sweep that terrain orders of magnitude faster, but a human operator watching the live video stream cannot reliably spot a ~30-pixel person against forest, rocks, or vegetation across hours of footage. Automated **aerial person detection** is therefore a real SAR bottleneck: turn a UAV's camera feed into actionable detections in real time.
+
+Concretely, the technical problem is:
+
+> Given an aerial RGB image (~4000×3000 px) captured from a UAV at typical SAR altitude, **detect every person in the scene with tight bounding boxes**, in real time, on hardware that fits on a drone or a ground station.
+
+This is hard for three coupled reasons that drive every design choice in this project:
+
+1. **Persons are tiny.** A typical HERIDAL person is ~30 px wide in a 4000×3000 image (< 0.1% of image area). Most off-the-shelf detectors trained at `imgsz=640` see this person shrunk to ~5 px after resize — they detect it, but cannot localize it tightly.
+2. **Natural distractors look like persons.** Aerial views over wilderness contain rocks, huts, ruins, and vegetation patches that share person-like silhouettes and aspect ratios. False positives on these distractors are the dominant remaining error mode after small-object accuracy is fixed.
+3. **Labelled data is scarce.** HERIDAL — the de-facto wilderness SAR dataset — contains 1,124 training images. Compared to COCO (~118k) or VisDrone (~10k), this is two orders of magnitude smaller. Anything that requires lots of labelled SAR data is off the table.
+
+### What this project does
+
+This project builds a **pipeline** — not a new detector — for aerial SAR person detection. The base detector is YOLOv12-s ([Tian et al., NeurIPS 2025](https://arxiv.org/abs/2502.12524)) and is **held constant across all phases**. Every improvement reported in this README attaches to a clearly-scoped change *outside* the detector: training data composition, training-time preprocessing, inference-time slicing strategy, or post-processing. This is a deliberate research choice (see [§2.1](#21-base-detector--held-constant-across-all-phases)) — it makes every reported Δ attributable to a single, swappable component, and the pipeline transfers to any future detector.
+
+The deliverables of the project are:
+
+- A reproducible training pipeline (Phase 2.5 / **Plan A**) achieving **mAP@0.5 = 0.872, mAP@0.5:0.95 = 0.574, AP_small = 0.494** on the HERIDAL validation set ([raw metrics](results/plan_a_density_crops_result.json) · [analysis](results/plan_a_analysis.md)).
+- A documented **negative result** on synthetic data augmentation (Phase 3, [docs/phase3_lessons_learned.md](docs/phase3_lessons_learned.md)) identifying *training–inference scale mismatch* as the dominant failure mode and *crop-then-synthesize* as the fix for future work.
+- A planned Phase 4 ([§11](#11-phase-4--planned-work)) extending the pipeline with a hard-negative cascade classifier ([Cai & Vasconcelos 2018](https://arxiv.org/abs/1712.00726)) and SAM2 bbox refinement ([Ravi et al. 2024](https://arxiv.org/abs/2408.00714)).
+
+### Methodology overview
+
+The pipeline solves the three problems above by **aligning the data scale seen during training with the data scale seen during inference**, plus targeted post-processing for the remaining failure modes. At a high level, methodology is structured in three layers (each later layer adds to the previous, the detector itself is never touched):
+
+**Layer 1 — Dataset selection.** Train on real aerial person data. Phase 1 uses **VisDrone** (urban aerial) as a setup smoke test and to ablate YOLOv12 model size (-n vs -s; -s wins). Phase 2 switches to **HERIDAL** (wilderness aerial), which is the real SAR target. Phase 2 also exposes the small-person localization problem (mAP@0.5:0.95 = 0.344 despite mAP@0.5 = 0.759). Full rationale: [§3](#3-why-two-datasets-visdrone--heridal-rationale).
+
+**Layer 2 — Training/inference scale alignment (Plan A).** The Phase 2 baseline resizes a 4000×3000 HERIDAL image down to 640×640, shrinking ~30-px persons to ~5 px. SAHI sliced inference (Akyon et al., ICIP 2022) would instead present native-resolution 640-px tiles to the detector at inference — but applying SAHI to the Phase 2 model collapses performance, because the model never saw native-resolution patches during training (mAP@0.5 drops 0.759 → 0.255).
+
+The fix — **Plan A**, the main contribution — moves the density-aware step **into training**: generate person-centered 640×640 crops at native resolution from the original HERIDAL images, train YOLOv12-s on those crops, and then run SAHI sliced inference on the original 4000×3000 images. Training distribution and inference distribution now match. This unlocks the benefit of SAHI and pushes mAP@0.5 to **0.872** (+0.113 vs Phase 2). Details: [§8](#8-phase-25--plan-a-density-aware-crops--sahi-).
+
+**Layer 3 — Post-processing for residual failure modes (Phase 4, planned).** Plan A's remaining errors are concentrated on (a) natural distractors (rocks, huts, vegetation) producing false positives, and (b) bounding boxes that find the person but are not tight enough at strict IoU thresholds. Phase 4 layers two post-hoc modules on top of Plan A: a **hard-negative cascade classifier** to filter (a), and **SAM2-based bbox refinement** to fix (b). No retraining of YOLOv12-s required for either. Details: [§11](#11-phase-4--planned-work).
+
+**Phase 3 — what was tried and why it failed.** Between Plan A and Phase 4, a synthetic-data augmentation phase was attempted (SDXL-generated backgrounds + HERIDAL person paste; same-domain HERIDAL composites). Both variants collapsed to ≈0 mAP. The diagnosis — *mixing raw 4000×3000 HERIDAL images into training reintroduces the same scale mismatch Plan A had just solved* — is documented in full as a negative result and frames "crop-then-synthesize" as the right way to revisit the idea later. Details: [§9](#9-phase-3--synthetic-data-augmentation-negative-result).
+
+### How to read the rest of this README
+
+- [§1](#1-project-overview-diagram) — single-diagram visual summary of the entire pipeline.
+- [§2](#2-base-detector--contribution-stack) — explicit table of cumulative improvements over the fixed base detector.
+- [§3](#3-why-two-datasets-visdrone--heridal-rationale) — rationale for the VisDrone → HERIDAL training sequence.
+- [§4](#4-headline-results), [§5](#5-current-status) — top-line numbers and phase status.
+- [§6–§9](#6-phase-1--visdrone-baseline) — per-phase detail: method, paper applied, results, links.
+- [§10–§11](#10-qualitative-results--observed-failure-modes) — qualitative analysis and planned work.
+- [§12–§14](#12-repository-structure) — repo layout, tech stack, citations.
 
 ---
 
