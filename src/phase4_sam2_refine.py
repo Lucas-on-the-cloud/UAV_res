@@ -52,9 +52,16 @@ import torch
 API_KEY = "PASTE_YOUR_ROBOFLOW_API_KEY_HERE"   # ← edit this line in Kaggle before running
 
 OUT = Path("/kaggle/working")
-PLAN_A_WEIGHTS = "/kaggle/input/yolov12s-heridal-crops-best/yolov12s_heridal_crops_BEST.pt"
-SAM2_CKPT      = SAM2_CKPT_PATH
-SAM2_CFG       = "sam2_hiera_s.yaml"
+
+# Auto-discover Plan A weights (.pt file inside the attached Kaggle dataset)
+import glob
+_w = sorted(glob.glob("/kaggle/input/yolov12s-heridal-crops-best/**/*.pt", recursive=True))
+assert _w, "No .pt found under /kaggle/input/yolov12s-heridal-crops-best/. Attach the dataset (Add Input → hung1244/yolov12s-heridal-crops-best)."
+PLAN_A_WEIGHTS = _w[0]
+print(f"Plan A weights: {PLAN_A_WEIGHTS}")
+
+SAM2_CKPT = SAM2_CKPT_PATH
+SAM2_CFG  = "sam2_hiera_s.yaml"
 
 # Roboflow dataset
 ROBOFLOW_WORKSPACE = "hung1244s-workspace"
