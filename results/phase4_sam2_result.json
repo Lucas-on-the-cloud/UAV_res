@@ -1,0 +1,49 @@
+{
+  "experiment": "Phase 4 Module 1 - SAM2 Bbox Refinement on top of Plan A",
+  "date": "2026-05-21",
+  "status": "negative",
+  "method": {
+    "base": "Plan A (Phase 2.5) predictions on HERIDAL val",
+    "refinement": "SAM2 (sam2_hiera_small) bbox-prompt -> mask -> refit tight bbox",
+    "filtering": "drop bbox if mask area < 50 px or aspect ratio outside [0.2, 5.0]",
+    "padding": "1 px outward after refit"
+  },
+  "results": {
+    "plan_a_baseline": {
+      "mAP50":    0.872,
+      "mAP50_95": 0.573,
+      "mAP75":    0.661,
+      "AP_small": 0.494,
+      "AR_100":   0.661,
+      "preds":    1000
+    },
+    "plan_a_plus_sam2": {
+      "mAP50":    0.871,
+      "mAP50_95": 0.487,
+      "mAP75":    0.492,
+      "AP_small": 0.450,
+      "AR_100":   0.589,
+      "preds":    999
+    },
+    "delta": {
+      "mAP50":     -0.001,
+      "mAP50_95":  -0.086,
+      "mAP75":     -0.169,
+      "AP_small":  -0.044,
+      "AR_100":    -0.072
+    }
+  },
+  "conclusion": "SAM2 zero-shot bbox-prompt does NOT improve Plan A on HERIDAL. mAP@0.5 essentially unchanged, but stricter-IoU metrics (mAP@0.75, mAP@0.5:0.95) drop significantly.",
+  "diagnosis_hypotheses": [
+    "SAM2 refit boxes are tighter than HERIDAL GT (GT has ~2-3 px margin around person)",
+    "For ~30 px persons typical in HERIDAL, sub-pixel scale matters: 2-3 px tightening drops IoU below 0.75 threshold",
+    "SAM2 occasionally segments only a part of the person (e.g., torso, missing limbs occluded by vegetation), producing too-small refit boxes",
+    "PAD_REFIT_PX=1 outward padding is insufficient to compensate"
+  ],
+  "future_work": [
+    "Sweep PAD_REFIT_PX in {2, 3, 5} px - may recover mAP@0.75",
+    "Scale-conditional padding: more padding for smaller bboxes",
+    "Try sam2_hiera_large (better quality at cost of inference time)",
+    "Use SAM2 only as FP filter (drop) rather than refit, keep original Plan A bbox"
+  ]
+}

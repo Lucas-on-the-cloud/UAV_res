@@ -110,19 +110,21 @@ Bottom line in italics:
 to synthetic samples too."
 
 ---
-SLIDE 8 — Phase 4 (in progress)
-Header: "Layer 3 — Phase 4: Post-processing on Plan A"
-Two boxes side by side:
-LEFT: "Module 1: SAM2 bbox refinement"
-- Box-prompt SAM2 → segmentation mask
-- Refit tight bbox from mask
-- Targets mAP@0.75 and mAP@0.5:0.95
-RIGHT: "Module 2: Hard-negative cascade"
-- MobileNetV3-Small classifier on Plan A's predictions
-- Trained from Plan A's TP/FP on the train set
-- Targets precision (rocks/huts/vegetation FPs)
-Bottom line: "Both modules sit on top of Plan A. YOLOv12-s still
-unchanged. Running on Kaggle T4 as of this presentation."
+SLIDE 8 — Phase 4 (partial: SAM2 negative result)
+Header: "Layer 3 — Phase 4: Post-processing (partial result)"
+Subheader: "Module 1: SAM2 bbox refinement — negative finding"
+Results table:
+| Metric | Plan A | Plan A + SAM2 | Δ |
+| mAP@0.5 | 0.872 | 0.871 | -0.001 |
+| mAP@0.5:0.95 | 0.573 | 0.487 | -0.086 |
+| mAP@0.75 | 0.661 | 0.492 | -0.169 |
+| AP_small | 0.494 | 0.450 | -0.044 |
+Diagnosis box (small italic text):
+"SAM2 refit boxes are 2-3 px tighter than HERIDAL GT. For ~30 px
+persons, this drops IoU below strict thresholds. SAM2 is correct;
+the GT convention has margin. Needs scale-aware padding (future work)."
+Bottom line: "Module 2 (Cascade classifier) still running on Kaggle.
+Plan A baseline unchanged at 0.872 mAP@0.5."
 
 ---
 SLIDE 9 — Summary Contribution Stack
@@ -131,9 +133,11 @@ Vertical bar chart OR table showing mAP@0.5 progression:
 - Phase 1 (VisDrone): 0.552
 - Phase 2 (HERIDAL): 0.759 (Δ +0.207, dataset switch)
 - Phase 2.5 (Plan A): 0.872 (Δ +0.113, training+inference pipeline) ⭐
-- Phase 3: failed (negative result, documented)
-- Phase 4: pending
-Bottom line: "Every Δ attaches to one outside-the-model component."
+- Phase 3 (synth aug): failed (negative result, documented)
+- Phase 4 SAM2: 0.871 (Δ -0.001, negative result, documented)
+- Phase 4 Cascade: pending
+Bottom line: "Plan A remains the contribution. Negative results
+documented honestly. Every Δ attaches to one outside-the-model component."
 
 ---
 SLIDE 10 — Closing
@@ -141,12 +145,14 @@ Header: "Takeaways"
 Three numbered bullets:
 1. "In aerial small-object detection, train–inference distribution
    alignment is the dominant lever — more so than architectural change."
-2. "SAHI is only effective when paired with native-resolution training."
-3. "Synthetic augmentation in this regime is non-trivial; it requires
-   the same scale-alignment discipline."
+2. "SAHI is only effective when paired with native-resolution training
+   data. The two are coupled, not independent."
+3. "Drop-in foundation models (SDXL, SAM2) do NOT transfer for free
+   to this domain. Both Phase 3 and Phase 4 SAM2 required scale-aware
+   adaptation that wasn't free."
 Bottom: "Thank you. Questions?"
-Tiny footer line in light grey: "Code, weights, full write-up:
-github.com/Lucas-on-the-cloud/UAV_res"
+Tiny footer line in light grey: "Code, weights, both positive and
+negative results: github.com/Lucas-on-the-cloud/UAV_res"
 
 ---
 

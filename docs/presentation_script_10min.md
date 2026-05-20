@@ -106,17 +106,21 @@ I'm reporting this rather than burying it because the lesson is reusable.
 
 ---
 
-## [SLIDE 8 — Layer 3: Phase 4 — post-processing (in progress)]
+## [SLIDE 8 — Layer 3: Phase 4 — post-processing (partial result)]
 
-*(Speak ~45 seconds)*
+*(Speak ~60 seconds — be candid about the SAM2 result)*
 
-Phase 4, currently executing on Kaggle GPUs as I speak, adds two complementary post-processing modules on top of Plan A. Neither retrains YOLOv12.
+Phase 4 layers two complementary post-processing modules on top of Plan A. Neither retrains YOLOv12.
 
-The first module is a **hard-negative cascade classifier**. I train a small MobileNetV3 on crops of Plan A's predictions, labelled by IoU against ground truth — true positives versus false positives on rocks, huts, vegetation. At inference, the cascade filters Plan A's predictions, targeting the precision side.
+The first module I tested was **SAM2 bounding-box refinement**, from Meta AI's 2024 paper. The idea is to prompt SAM2 with each Plan A bbox, get a segmentation mask, then refit a tight box from the mask. In principle this should raise mAP at strict IoU thresholds. I ran it last night.
 
-The second module is **SAM2 bounding-box refinement**, from Meta AI's 2024 paper. Each Plan A bbox is used as a box prompt to SAM2, which returns a segmentation mask. I refit a tight bounding box from the mask, which directly raises mAP at the strict IoU thresholds.
+**The result was negative.** mAP@0.5 stays at 0.871, essentially unchanged. But mAP@0.75 drops from 0.661 to 0.492, and mAP@0.5:0.95 drops from 0.573 to 0.487. So zero-shot SAM2 refinement actively hurts performance on this domain.
 
-Both modules target a different residual failure mode of Plan A — the cascade targets false positives, SAM2 targets loose boxes — so they should be additive in a combined pipeline. That combined ablation is the planned Phase 4 contribution.
+The diagnosis is that SAM2's refit boxes are **tighter than the HERIDAL ground-truth boxes by a few pixels**, and for persons that are only thirty pixels wide, a two- or three-pixel tightening pushes IoU below the strict thresholds. So SAM2 is "correct" in some sense — it really does segment the person tightly — but the GT bbox convention has slight margin, and the IoU metric punishes tighter-than-GT.
+
+This is a useful negative finding. SAM2 is not a free win in small-object aerial settings — it needs domain-aware padding or scale-conditional refinement, which is concrete future work.
+
+The second module — **hard-negative cascade classifier** — is still running on Kaggle as I speak. It trains a MobileNetV3-Small on Plan A's true positives versus false positives on the train set, then filters predictions at inference. I'll report those numbers in a follow-up.
 
 ---
 
@@ -124,11 +128,11 @@ Both modules target a different residual failure mode of Plan A — the cascade 
 
 *(Speak ~40 seconds)*
 
-To summarize the contribution stack as it stands today: on a fixed YOLOv12-s base, Phase 1 establishes the urban-aerial reference number on VisDrone at 0.552 mAP@0.5. Phase 2 switches to HERIDAL — the actual SAR target — reaching 0.759. Phase 2.5, Plan A, adds density-aware training crops and SAHI sliced inference, reaching **0.872 mAP@0.5 and 0.574 mAP@0.5:0.95**, with AP_small at 0.494.
+To summarize the contribution stack as it stands today: on a fixed YOLOv12-s base, Phase 1 establishes the urban-aerial reference number on VisDrone at 0.552 mAP@0.5. Phase 2 switches to HERIDAL — the actual SAR target — reaching 0.759. Phase 2.5, Plan A, adds density-aware training crops and SAHI sliced inference, reaching **0.872 mAP@0.5 and 0.573 mAP@0.5:0.95**, with AP_small at 0.494.
 
-Phase 3 is a documented negative result. Phase 4, in progress, layers post-processing.
+Phase 3 is one documented negative result on synthetic augmentation. Phase 4 Module 1, SAM2 refinement, is a **second** documented negative result — zero-shot SAM2 doesn't transfer cleanly to small-aerial-person bounding boxes. Phase 4 Module 2, the cascade classifier, is still running.
 
-Every reported delta attaches to a specific outside-the-model component — dataset, preprocessing, inference strategy, or post-processing. The detector architecture has not been changed at any point.
+Plan A — the +0.113 mAP@0.5 jump over Phase 2 baseline — remains the headline contribution. Every reported delta attaches to a specific outside-the-model component; the detector architecture has not been changed at any point.
 
 ---
 
@@ -136,9 +140,9 @@ Every reported delta attaches to a specific outside-the-model component — data
 
 *(Speak ~30 seconds)*
 
-The takeaways I'd like to leave with the committee. **First**: in aerial small-object detection, training–inference distribution alignment is the dominant lever, more so than architectural changes. **Second**: SAHI-style sliced inference is only effective when paired with native-resolution training data. **Third**: synthetic-data augmentation in this regime is non-trivial and requires the same scale-alignment discipline.
+Three takeaways I'd like to leave with the committee. **First**: in aerial small-object detection, training–inference distribution alignment is the dominant lever, more so than architectural changes. **Second**: SAHI-style sliced inference is only effective when paired with native-resolution training data — the two are coupled, not independent. **Third**: drop-in foundation models — synthetic diffusion in Phase 3, SAM2 in Phase 4 — do not transfer for free to this domain; both required scale-aware adaptation that wasn't free.
 
-All artifacts, weights, code, and the full per-phase write-up are on the project GitHub repository. I'm happy to take questions.
+All artifacts, weights, code, both positive and negative results, are on the project GitHub repository. I'm happy to take questions.
 
 ---
 
