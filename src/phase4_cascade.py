@@ -101,7 +101,11 @@ VAL_ANN       = VAL_IMG_DIR / "_annotations.coco.json"
 
 with open(TRAIN_ANN) as f: coco_train = json.load(f)
 with open(VAL_ANN)   as f: coco_val   = json.load(f)
-print(f"Train: {len(coco_train['images'])} images, Val: {len(coco_val['images'])} images\n")
+print(f"Train: {len(coco_train['images'])} images, Val: {len(coco_val['images'])} images")
+
+PERSON_CAT_ID = coco_val["categories"][-1]["id"]
+print(f"GT categories: {[(c['id'], c['name']) for c in coco_val['categories']]}")
+print(f"Using PERSON_CAT_ID = {PERSON_CAT_ID}\n")
 
 # ============================================================
 # STEP 4 - PLAN A SAHI INFERENCE (train + val)
@@ -139,7 +143,7 @@ def run_sahi(img_dir, coco_dict, tag):
             sc = p.score.value
             bbs.append((bb, sc))
             coco_preds.append({
-                "image_id": img_info["id"], "category_id": 0,
+                "image_id": img_info["id"], "category_id": PERSON_CAT_ID,
                 "bbox": [bb[0], bb[1], bb[2]-bb[0], bb[3]-bb[1]],
                 "score": sc,
             })
@@ -312,7 +316,7 @@ for img_id, (img_path, bbs) in val_preds.items():
             n_dropped += 1; continue
         x1, y1, x2, y2 = out_bbox
         cascade_preds.append({
-            "image_id": img_id, "category_id": 0,
+            "image_id": img_id, "category_id": PERSON_CAT_ID,
             "bbox": [float(x1), float(y1), float(x2-x1), float(y2-y1)],
             "score": float(new_score),
         })

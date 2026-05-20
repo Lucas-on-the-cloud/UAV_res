@@ -98,7 +98,12 @@ assert VAL_IMG_DIR.exists() and VAL_ANN.exists(), f"Missing {VAL_ANN}"
 
 with open(VAL_ANN) as f:
     coco_val = json.load(f)
-print(f"Val: {len(coco_val['images'])} images, {len(coco_val['annotations'])} GT boxes\n")
+print(f"Val: {len(coco_val['images'])} images, {len(coco_val['annotations'])} GT boxes")
+
+# Pick the person category_id from GT (Roboflow exports vary: sometimes 0, sometimes 1)
+PERSON_CAT_ID = coco_val["categories"][-1]["id"]  # last category is usually the real class
+print(f"GT categories: {[(c['id'], c['name']) for c in coco_val['categories']]}")
+print(f"Using PERSON_CAT_ID = {PERSON_CAT_ID}\n")
 
 # ============================================================
 # STEP 4 - PLAN A SAHI INFERENCE ON VAL
@@ -138,7 +143,7 @@ for i, img_info in enumerate(coco_val["images"]):
         sc = p.score.value
         bbs.append((bb, sc))
         baseline_preds.append({
-            "image_id": img_id, "category_id": 0,
+            "image_id": img_id, "category_id": PERSON_CAT_ID,
             "bbox": [bb[0], bb[1], bb[2]-bb[0], bb[3]-bb[1]],
             "score": sc,
         })
@@ -198,7 +203,7 @@ for i, (img_id, (img_path, bbs)) in enumerate(all_image_bboxes.items()):
             n_dropped += 1; continue
         x1, y1, x2, y2 = refit
         refined_preds.append({
-            "image_id": img_id, "category_id": 0,
+            "image_id": img_id, "category_id": PERSON_CAT_ID,
             "bbox": [float(x1), float(y1), float(x2-x1), float(y2-y1)],
             "score": float(score),
         })
