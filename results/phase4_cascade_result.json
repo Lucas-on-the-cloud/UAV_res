@@ -1,0 +1,52 @@
+{
+  "experiment": "Phase 4 Module 2 - Hard-Negative Cascade Classifier on top of Plan A",
+  "date": "2026-05-21",
+  "status": "negative (AP_small) / neutral (other metrics)",
+  "method": {
+    "base": "Plan A (Phase 2.5) predictions on HERIDAL val",
+    "data_collection": "Plan A SAHI inference on HERIDAL train; match each pred vs GT by IoU; IoU>=0.5 -> person, IoU<0.1 -> not_person, in between -> drop",
+    "classifier": "MobileNetV3-Small (timm pretrained), 64x64 crops with 1.5x bbox padding",
+    "training": "30 epochs AdamW lr=1e-3, class-balanced WeightedRandomSampler",
+    "inference": "drop bbox if person_prob < 0.5; multiply Plan A score by person_prob"
+  },
+  "results": {
+    "plan_a_baseline": {
+      "mAP50":    0.872,
+      "mAP50_95": 0.573,
+      "mAP75":    0.661,
+      "AP_small": 0.494,
+      "AR_100":   0.661,
+      "preds":    1000
+    },
+    "plan_a_plus_cascade": {
+      "mAP50":    0.869,
+      "mAP50_95": 0.571,
+      "mAP75":    0.663,
+      "AP_small": 0.379,
+      "AR_100":   0.636,
+      "preds":    611,
+      "filter_rate": 0.389
+    },
+    "delta": {
+      "mAP50":     -0.003,
+      "mAP50_95":  -0.002,
+      "mAP75":     +0.002,
+      "AP_small":  -0.115,
+      "AR_100":    -0.025
+    }
+  },
+  "conclusion": "Cascade classifier is neutral on overall mAP metrics but drops AP_small by 11.5 points absolute. The 0.5 threshold filters out 38.9% of predictions, and a disproportionate fraction of those drops are small-scale TPs that the MobileNetV3-Small classifier could not confidently identify.",
+  "diagnosis_hypotheses": [
+    "64x64 input crops are too small for the classifier to learn person-vs-distractor discrimination at the small-person scale (~30 px person becomes ~45 px in the 1.5x padded crop, then downsampled to 64). Signal-to-noise too low.",
+    "Class-balanced sampling during training may have over-weighted the smaller hard-negative class, pushing decision boundary inward",
+    "Threshold 0.5 is too strict; threshold 0.3-0.4 may keep more small-person TPs at modest precision cost",
+    "Training data (Plan A predictions on train) may have insufficient small-person TPs to learn small-scale features"
+  ],
+  "future_work": [
+    "Sweep CASCADE_THRESHOLD in {0.2, 0.3, 0.4, 0.5} to find precision/recall sweet spot",
+    "Use larger crop size (128x128) to preserve more detail at small-person scale",
+    "Train scale-conditional classifier (small/medium/large heads or scale-aware embedding)",
+    "Try ResNet18 instead of MobileNetV3-Small - larger receptive field may help",
+    "Re-evaluate as score re-weighter only (multiply but never drop), not a hard filter"
+  ]
+}

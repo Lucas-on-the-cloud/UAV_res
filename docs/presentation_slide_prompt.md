@@ -110,21 +110,22 @@ Bottom line in italics:
 to synthetic samples too."
 
 ---
-SLIDE 8 — Phase 4 (partial: SAM2 negative result)
-Header: "Layer 3 — Phase 4: Post-processing (partial result)"
-Subheader: "Module 1: SAM2 bbox refinement — negative finding"
-Results table:
-| Metric | Plan A | Plan A + SAM2 | Δ |
-| mAP@0.5 | 0.872 | 0.871 | -0.001 |
-| mAP@0.5:0.95 | 0.573 | 0.487 | -0.086 |
-| mAP@0.75 | 0.661 | 0.492 | -0.169 |
-| AP_small | 0.494 | 0.450 | -0.044 |
-Diagnosis box (small italic text):
-"SAM2 refit boxes are 2-3 px tighter than HERIDAL GT. For ~30 px
-persons, this drops IoU below strict thresholds. SAM2 is correct;
-the GT convention has margin. Needs scale-aware padding (future work)."
-Bottom line: "Module 2 (Cascade classifier) still running on Kaggle.
-Plan A baseline unchanged at 0.872 mAP@0.5."
+SLIDE 8 — Phase 4 (both modules tested, both underperformed)
+Header: "Layer 3 — Phase 4: Two post-processing modules, both negative"
+Combined results table:
+| Metric | Plan A | + SAM2 | + Cascade |
+| mAP@0.5 | 0.872 | 0.871 (-0.001) | 0.869 (-0.003) |
+| mAP@0.5:0.95 | 0.573 | 0.487 (-0.086) | 0.571 (-0.002) |
+| mAP@0.75 | 0.661 | 0.492 (-0.169) | 0.663 (+0.002) |
+| AP_small | 0.494 | 0.450 (-0.044) | 0.379 (-0.115) |
+Diagnosis box (small italic text, two lines):
+"SAM2: refit boxes 2-3 px tighter than HERIDAL GT - IoU drops below
+strict thresholds at ~30 px person scale."
+"Cascade: filters 39% of preds, but disproportionately drops small-scale
+TPs - 64x64 input too small for confident classification."
+Bottom line in bold:
+"Common lesson: Plan A is scale-tuned for HERIDAL. Post-hoc additions
+without explicit scale-awareness break the scale alignment."
 
 ---
 SLIDE 9 — Summary Contribution Stack
@@ -133,11 +134,12 @@ Vertical bar chart OR table showing mAP@0.5 progression:
 - Phase 1 (VisDrone): 0.552
 - Phase 2 (HERIDAL): 0.759 (Δ +0.207, dataset switch)
 - Phase 2.5 (Plan A): 0.872 (Δ +0.113, training+inference pipeline) ⭐
-- Phase 3 (synth aug): failed (negative result, documented)
-- Phase 4 SAM2: 0.871 (Δ -0.001, negative result, documented)
-- Phase 4 Cascade: pending
-Bottom line: "Plan A remains the contribution. Negative results
-documented honestly. Every Δ attaches to one outside-the-model component."
+- Phase 3 (synth aug): failed (scale mismatch)
+- Phase 4 SAM2: 0.871 (over-tightens bbox)
+- Phase 4 Cascade: 0.869 (drops small-scale TPs)
+Bottom line: "Plan A is the contribution (mAP@0.5 = 0.872). Three
+documented negative results converge on one lesson: in this regime,
+scale-awareness is the load-bearing constraint."
 
 ---
 SLIDE 10 — Closing

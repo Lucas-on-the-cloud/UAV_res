@@ -106,21 +106,17 @@ I'm reporting this rather than burying it because the lesson is reusable.
 
 ---
 
-## [SLIDE 8 — Layer 3: Phase 4 — post-processing (partial result)]
+## [SLIDE 8 — Layer 3: Phase 4 — both modules tested]
 
-*(Speak ~60 seconds — be candid about the SAM2 result)*
+*(Speak ~75 seconds — be candid about both negative results)*
 
-Phase 4 layers two complementary post-processing modules on top of Plan A. Neither retrains YOLOv12.
+Phase 4 layers two complementary post-processing modules on top of Plan A. Neither retrains YOLOv12. Both have now been evaluated, and I want to report both results honestly because the pattern across them is more interesting than either single number.
 
-The first module I tested was **SAM2 bounding-box refinement**, from Meta AI's 2024 paper. The idea is to prompt SAM2 with each Plan A bbox, get a segmentation mask, then refit a tight box from the mask. In principle this should raise mAP at strict IoU thresholds. I ran it last night.
+The first module is **SAM2 bounding-box refinement**, from Meta AI's 2024 paper. Prompt SAM2 with each Plan A bbox, get a segmentation mask, refit a tight box. **Result: negative.** mAP@0.5 stays at 0.871, but mAP@0.75 drops from 0.661 to 0.492, and mAP@0.5:0.95 drops from 0.573 to 0.487. Diagnosis: SAM2's refit boxes are tighter than HERIDAL GT by two or three pixels, and for thirty-pixel persons that pushes IoU below the strict thresholds.
 
-**The result was negative.** mAP@0.5 stays at 0.871, essentially unchanged. But mAP@0.75 drops from 0.661 to 0.492, and mAP@0.5:0.95 drops from 0.573 to 0.487. So zero-shot SAM2 refinement actively hurts performance on this domain.
+The second module is the **hard-negative cascade classifier** — a MobileNetV3-Small trained on Plan A's true positives versus false positives on the train set, applied as a confidence filter at inference. **Result: also negative on the metric that matters most.** Overall mAP@0.5 is essentially unchanged at 0.869. But **AP_small drops eleven and a half points, from 0.494 to 0.379**. The classifier is too aggressive at the small-person scale: it drops thirty-nine percent of predictions, and a disproportionate fraction of those drops are small true positives the classifier could not confidently identify in 64-pixel input crops.
 
-The diagnosis is that SAM2's refit boxes are **tighter than the HERIDAL ground-truth boxes by a few pixels**, and for persons that are only thirty pixels wide, a two- or three-pixel tightening pushes IoU below the strict thresholds. So SAM2 is "correct" in some sense — it really does segment the person tightly — but the GT bbox convention has slight margin, and the IoU metric punishes tighter-than-GT.
-
-This is a useful negative finding. SAM2 is not a free win in small-object aerial settings — it needs domain-aware padding or scale-conditional refinement, which is concrete future work.
-
-The second module — **hard-negative cascade classifier** — is still running on Kaggle as I speak. It trains a MobileNetV3-Small on Plan A's true positives versus false positives on the train set, then filters predictions at inference. I'll report those numbers in a follow-up.
+So three different post-hoc additions to Plan A — Phase 3's synthetic data, Phase 4's SAM2 refinement, and Phase 4's cascade classifier — have all underperformed for **different reasons**: scale mismatch in training, box-tightness mismatch in refinement, and small-scale feature limits in the classifier. The convergent lesson is that Plan A is finely tuned to HERIDAL's specific scale regime, and any module added without explicit scale-awareness breaks something.
 
 ---
 
@@ -130,7 +126,7 @@ The second module — **hard-negative cascade classifier** — is still running 
 
 To summarize the contribution stack as it stands today: on a fixed YOLOv12-s base, Phase 1 establishes the urban-aerial reference number on VisDrone at 0.552 mAP@0.5. Phase 2 switches to HERIDAL — the actual SAR target — reaching 0.759. Phase 2.5, Plan A, adds density-aware training crops and SAHI sliced inference, reaching **0.872 mAP@0.5 and 0.573 mAP@0.5:0.95**, with AP_small at 0.494.
 
-Phase 3 is one documented negative result on synthetic augmentation. Phase 4 Module 1, SAM2 refinement, is a **second** documented negative result — zero-shot SAM2 doesn't transfer cleanly to small-aerial-person bounding boxes. Phase 4 Module 2, the cascade classifier, is still running.
+Three documented negative results: Phase 3 synthetic augmentation, Phase 4 SAM2 refinement, and Phase 4 cascade classifier. Each fails for a different mechanical reason, but they converge on one lesson — Plan A's scale alignment is the load-bearing piece, and stacking unrelated components on top breaks something unless that scale discipline is preserved.
 
 Plan A — the +0.113 mAP@0.5 jump over Phase 2 baseline — remains the headline contribution. Every reported delta attaches to a specific outside-the-model component; the detector architecture has not been changed at any point.
 
